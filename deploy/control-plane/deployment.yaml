@@ -1,0 +1,201 @@
+# PRODUCTION DEFAULT — control-plane on Platform Kubernetes (OKE / any K8s).
+#
+# This is the path you run in production. Do not invent a second pattern
+# unless you have a concrete reason documented in
+# deployment-split-reconciler.yaml (that file is the escape hatch, not the
+# default).
+#
+# What this encodes (operators should not re-decide these):
+#   - One Deployment, replicas: 2+ (API availability).
+#   - FABRIC_DNS_RECONCILE_ENABLED=1 on every replica.
+#   - Leader election ON (FABRIC_DNS_LEADER_ELECTION=1, or unset — the binary
+#     also defaults election on when reconcile is enabled in-cluster).
+#   - Exactly one replica holds the coordination.k8s.io Lease and runs DNS
+#     reconcile ticks; the others serve API traffic and take over on lease
+#     loss (crash / node failure). No human "pin replicas: 1" step.
+#   - ServiceAccount + Role/RoleBinding for that one Lease object.
+#
+# Fail-closed: if election cannot run (no in-cluster SA), the reconciler
+# refuses to start rather than becoming an uncoordinated second writer.
+#
+# Do NOT also apply deployment-split-reconciler.yaml alongside this —
+# that would create two writers.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fabric-control-plane
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fabric-control-plane-dns-lease
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: ["fabric-dns-reconciler"]
+    verbs: ["get", "update"]
+  # create cannot be resourceNames-scoped on first acquire (object may not exist yet)
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fabric-control-plane-dns-lease
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+subjects:
+  - kind: ServiceAccount
+    name: fabric-control-plane
+    namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+roleRef:
+  kind: Role
+  name: fabric-control-plane-dns-lease
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fabric-control-plane
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  selector:
+    app: fabric-control-plane
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fabric-control-plane
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  replicas: 2 # production floor for availability + meaningful lease failover
+  selector:
+    matchLabels:
+      app: fabric-control-plane
+  template:
+    metadata:
+      labels:
+        app: fabric-control-plane
+    spec:
+      serviceAccountName: fabric-control-plane
+      imagePullSecrets:
+        - name: ocir-secret
+      containers:
+        - name: control-plane
+          image: phx.ocir.io/axsfgj15p1je/mesh-control-plane:v4
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: FABRIC_STORE
+              value: postgres
+            - name: FABRIC_CONTROL_PLANE_PORT
+              value: "8080"
+            - name: FABRIC_LOG_LEVEL
+              value: info
+            # D7-A: pin heartbeat degrade threshold (code default was 90s).
+            - name: FABRIC_HEARTBEAT_DEGRADED_AFTER
+              value: "90s"
+            # D6-A: cert expiry pages (job logs always; webhook optional until Secret exists).
+            # Create: kubectl -n 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c create secret generic fabric-cert-expiry-webhook --from-literal=url=https://hooks.example/…
+            - name: FABRIC_CERT_EXPIRY_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-cert-expiry-webhook
+                  key: url
+                  optional: true
+            # D4-A: platform force-rotate job OFF for v1 (Agents re-issue via pull).
+            # Set e.g. "168h" only after D5 margins are understood under load.
+            # - name: FABRIC_AGENT_API_TOKEN_ROTATE_INTERVAL
+            #   value: "168h"
+            - name: ABLV_ACCESS_URL
+              value: "http://172.16.1.101:3000/v1/access"
+            - name: FABRIC_DATABASE_URL
+              value: "postgresql://abluva:Abluva@2026@10.0.20.134:5432/abluva_dev?sslmode=no-verify&options=-csearch_path%3Dcontrol"
+            - name: ABLV_PLATFORM_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-platform-ids
+                  key: tenant_id
+            - name: ABLV_PLATFORM_ENVIRONMENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-platform-ids
+                  key: environment_id
+            - name: FABRIC_CONTROL_PLANE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-control-plane-auth
+                  key: bearer_token
+            - name: FABRIC_DUAL_CONTROL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-control-plane-auth
+                  key: dual_control_token
+            # L3-OPS-01: revoke push → in-cluster Gateway Service :9090 (NOT the public NLB, NOT :8443).
+            - name: FABRIC_GATEWAY_PUSH_DNS_NAMES
+              value: fabric-gateway.fabric-control.svc.cluster.local
+            - name: FABRIC_GATEWAY_PUSH_DNS_PORT
+              value: "9090"
+            - name: FABRIC_GATEWAY_PUSH_DNS_SCHEME
+              value: http
+            - name: FABRIC_GATEWAY_INBOUND_DOMAIN
+              value: connect.abluva.com
+            # Production DNS defaults — do not turn these into a choice:
+            # enable reconcile on all replicas; Lease picks the single writer.
+            - name: FABRIC_DNS_RECONCILE_ENABLED
+              value: "1"
+            - name: FABRIC_DNS_LEADER_ELECTION
+              value: "1"
+            - name: FABRIC_DNS_LEASE_NAME
+              value: fabric-dns-reconciler
+            - name: FABRIC_DNS_LEASE_NAMESPACE
+              value: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+            - name: FABRIC_DNS_LEASE_DURATION_SECONDS
+              value: "15"
+            - name: FABRIC_DNS_LEASE_RENEW_INTERVAL_MS
+              value: "10000"
+            - name: FABRIC_DNS_TARGET
+              value: fabric.abluva.com
+            - name: FABRIC_DNS_PROVIDER
+              value: webhook
+            - name: FABRIC_DNS_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-dns-webhook
+                  key: url
+            - name: FABRIC_DNS_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-dns-webhook
+                  key: token
+            # Per-pod local state: only the leader writes; on failover the
+            # new leader re-upserts (idempotent) then converges. Do not
+            # share this path across pods.
+            - name: FABRIC_DNS_WEBHOOK_STATE_PATH
+              value: /var/run/fabric/dns-webhook-state.json
+            # L3-AGT-02: Intermediate (or local CA) used to sign Agent CSRs on enroll.
+            # Mount signing material as a Secret; never bake leaf keys into Agent installs.
+            - name: FABRIC_AGENT_CA_CERT_FILE
+              value: /etc/fabric/agent-ca/ca.crt
+            - name: FABRIC_AGENT_CA_KEY_FILE
+              value: /etc/fabric/agent-ca/ca.key
+          volumeMounts:
+            - name: dns-state
+              mountPath: /var/run/fabric
+            - name: agent-ca
+              mountPath: /etc/fabric/agent-ca
+              readOnly: true
+      volumes:
+        - name: dns-state
+          emptyDir: {}
+        - name: agent-ca
+          secret:
+            secretName: fabric-agent-ca
+            # expected keys: ca.crt, ca.key

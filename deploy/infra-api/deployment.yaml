@@ -1,0 +1,172 @@
+# Abluva Infra API Server (Control Plane Server)
+# Provides: /api/v1/control/discovery, tenant/environment/resource CRUD, IDP, provisioning
+# Dependency: access-service (INFRA_LIB_URL) must be running first — fetches DB creds at startup.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: infra-api
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: infra-api
+  template:
+    metadata:
+      labels:
+        app: infra-api
+    spec:
+      imagePullSecrets:
+        - name: ocir-secret
+      containers:
+        - name: infra-api
+          image: phx.ocir.io/axsfgj15p1je/abluva-infra-api:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 5001
+          env:
+            - name: PORT
+              value: "5001"
+            - name: NODE_ENV
+              value: "production"
+            # Access service URL — fetches DB creds at startup
+            - name: INFRA_LIB_URL
+              value: "http://access-service:3000"
+            - name: ABLUVA_TENANT_ID
+              value: "3407e407-792a-452d-8bb4-03c54ac34d52"
+            - name: ABLUVA_ENVIRONMENT_ID
+              value: "5620f907-0281-497d-9098-8cfed51f5be1"
+            - name: CORS_ORIGIN
+              value: "*"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: abluva-server-secrets
+                  key: JWT_SECRET
+                  optional: true
+            - name: INTERNAL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: abluva-server-secrets
+                  key: INTERNAL_SECRET
+                  optional: true
+            - name: JWT_EXPIRES_IN
+              value: "1d"
+            # Email (AWS SES)
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: abluva-server-secrets
+                  key: AWS_ACCESS_KEY_ID
+                  optional: true
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: abluva-server-secrets
+                  key: AWS_SECRET_ACCESS_KEY
+                  optional: true
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: SMTP_HOST
+              value: "smtp.email.us-phoenix-1.oci.oraclecloud.com"
+            - name: SMTP_PORT
+              value: "587"
+            - name: SMTP_FROM_ADDRESS
+              value: "no-reply@notifications.abluva.com"
+            - name: SMTP_FROM_DISPLAY_NAME
+              value: "Abluva"
+            # AI (optional — set in secret if needed)
+            - name: CHAT_PROVIDER
+              value: "openai"
+            - name: EMBED_PROVIDER
+              value: "openai"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: abluva-server-secrets
+                  key: OPENAI_API_KEY
+                  optional: true
+            - name: OPENAI_MODEL
+              value: "gpt-4o-mini"
+            - name: OPENAI_EMBED_MODEL
+              value: "text-embedding-3-small"
+            # Notification
+            - name: NOTIFICATION_MAX_RETRIES
+              value: "3"
+            - name: NOTIFICATION_DRY_RUN
+              value: "false"
+          readinessProbe:
+            httpGet:
+              path: /api/v1/control/tenants
+              port: 5001
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v1/control/tenants
+              port: 5001
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: infra-api
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  selector:
+    app: infra-api
+  ports:
+    - name: http
+      port: 5001
+      targetPort: 5001
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-access-to-infra-api
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  podSelector:
+    matchLabels:
+      app: infra-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow access-service, gateway, and intra-namespace to reach infra-api
+    - from:
+        - podSelector:
+            matchLabels:
+              app: access-service
+      ports:
+        - protocol: TCP
+          port: 5001
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fabric-control
+          podSelector:
+            matchLabels:
+              app: mesh-gateway
+      ports:
+        - protocol: TCP
+          port: 5001
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5001
+  egress:
+    # Allow all egress (DB, access-service, external APIs like OpenAI/AWS)
+    - {}

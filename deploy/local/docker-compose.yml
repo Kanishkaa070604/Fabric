@@ -1,0 +1,127 @@
+# Local smoke: Postgres (SequelizeStore) + control-plane + Gateway + Ghostunnel v1.11.1
+# Usage: see README.md in this directory.
+#
+# LOCAL ONLY — do not copy these tokens / Access URL into production manifests.
+# Production: Secrets + real ABLV_ACCESS_URL; DNS Lease on (deployment.yaml).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fabric
+      POSTGRES_PASSWORD: fabric
+      POSTGRES_DB: fabric
+    ports:
+      - "54329:5432"
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fabric -d fabric"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  control-plane:
+    build:
+      context: ../..
+      dockerfile: deploy/local/Dockerfile.control-plane
+    environment:
+      # Store: postgres (default local). memory is for unit tests only.
+      FABRIC_STORE: postgres
+      FABRIC_DATABASE_URL: postgres://fabric:fabric@postgres:5432/fabric
+      FABRIC_ENSURE_SAAS_TENANT: "1"
+      FABRIC_CONTROL_PLANE_PORT: "8080"
+      # Dead stub — Access secret fetch for B1 is Not local; staging must override.
+      ABLV_ACCESS_URL: http://127.0.0.1:9/v1/access
+      ABLV_PLATFORM_TENANT_ID: "00000000-0000-0000-0000-000000000001"
+      ABLV_PLATFORM_ENVIRONMENT_ID: "00000000-0000-0000-0000-000000000002"
+      FABRIC_LOG_LEVEL: info
+      # L3-CTL-01 local: bearer required; dual-control for suspend/revoke/delete
+      FABRIC_CONTROL_PLANE_TOKEN: fabric-local-dev-token
+      FABRIC_DUAL_CONTROL_TOKEN: fabric-break-glass
+      # Heartbeat miss → Degraded (smoke can lower via FABRIC_HEARTBEAT_DEGRADED_AFTER)
+      FABRIC_HEARTBEAT_DEGRADED_AFTER: ${FABRIC_HEARTBEAT_DEGRADED_AFTER:-90s}
+      FABRIC_GATEWAY_INBOUND_DOMAIN: connect.fabric
+      # L3-AGT-02: sign Agent CSRs on enroll (same local CA as Ghostunnel/Gateway)
+      FABRIC_AGENT_CA_CERT_FILE: /certs/ca.crt
+      FABRIC_AGENT_CA_KEY_FILE: /certs/ca.key
+      # DNS: file provider for compose CoreDNS (election off out-of-cluster — intentional)
+      # FABRIC_DNS_RECONCILE_ENABLED: unset here unless you need local reconcile ticks
+    ports:
+      - "18080:8080"
+    volumes:
+      - ./certs:/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/local/Dockerfile.gateway
+    stop_grace_period: 30s
+    environment:
+      FABRIC_GATEWAY_UNIX_SOCKET: /var/run/fabric/gateway.sock
+      FABRIC_CONTROL_PLANE_URL: http://control-plane:8080
+      FABRIC_CONTROL_PLANE_TOKEN: fabric-local-dev-token
+      FABRIC_LOG_LEVEL: info
+      # G-A3-1 platform→customer inbound (TLS SNI = <reg>.<tenant>.connect.fabric)
+      FABRIC_GATEWAY_INBOUND_LISTEN: "0.0.0.0:8444"
+      FABRIC_GATEWAY_INBOUND_TLS_CERT: /certs/gateway.crt
+      FABRIC_GATEWAY_INBOUND_TLS_KEY: /certs/gateway.key
+      FABRIC_GATEWAY_INBOUND_DOMAIN: connect.fabric
+      # Keepalive drives gateway→CP heartbeats; raise in smoke for Degraded test via compose override
+      FABRIC_YAMUX_KEEPALIVE: ${FABRIC_YAMUX_KEEPALIVE:-30s}
+      # SIGTERM graceful-drain bound (Level 1 §12); smoke-lifecycle.sh lowers this
+      FABRIC_SHUTDOWN_GRACE: ${FABRIC_SHUTDOWN_GRACE:-25s}
+    ports:
+      - "18444:8444"
+    volumes:
+      - fabric-sock:/var/run/fabric
+      - ./certs:/certs:ro
+    # Linux Docker Engine has no host.docker.internal by default; host-gateway
+    # makes that name resolve to the host (Docker Desktop already does). Needed
+    # so PLATFORM_* adapters can dial host echo / DBs published on the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - control-plane
+    restart: unless-stopped
+
+  # Wildcard DNS for *.connect.fabric → 127.0.0.1 (host publishes Gateway inbound :18444)
+  coredns:
+    image: coredns/coredns:1.11.3
+    command: ["-conf", "/Corefile"]
+    volumes:
+      - ./coredns/Corefile:/Corefile:ro
+    ports:
+      # Avoid host :5353 (often taken by mDNS/Bonjour on macOS).
+      - "15353:53/udp"
+      - "15353:53/tcp"
+    restart: unless-stopped
+
+  ghostunnel:
+    image: ghostunnel/ghostunnel:v1.11.1-distroless
+    command:
+      - server
+      - --listen=0.0.0.0:8443
+      - --target=unix:/var/run/fabric/gateway.sock
+      - --cert=/certs/gateway.crt
+      - --key=/certs/gateway.key
+      - --cacert=/certs/ca.crt
+      - --allow-all
+      - --proxy-protocol-mode=tls-full
+      - --status=http://127.0.0.1:6060
+      # Match gateway FABRIC_SHUTDOWN_GRACE (L3-GW-07).
+      - --shutdown-timeout=25s
+    ports:
+      - "18443:8443"
+    volumes:
+      - fabric-sock:/var/run/fabric
+      - ./certs:/certs:ro
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+volumes:
+  fabric-sock:

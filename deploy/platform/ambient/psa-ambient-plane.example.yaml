@@ -1,0 +1,10 @@
+# Privileged PSA only for the namespace hosting ztunnel + Istio CNI.
+# Apply on Platform clusters before Ambient install. Do not widen to app namespaces.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ambient-plane
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

@@ -1,0 +1,12 @@
+FROM node:22-bookworm-slim
+# openssl: CSR-in-enroll leaf signing (L3-AGT-02)
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl \
+  && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY control-plane/package.json control-plane/package-lock.json* ./
+RUN npm install
+COPY control-plane/ ./
+ENV FABRIC_CONTROL_PLANE_PORT=8080
+EXPOSE 8080
+CMD ["npx", "tsx", "src/index.ts"]

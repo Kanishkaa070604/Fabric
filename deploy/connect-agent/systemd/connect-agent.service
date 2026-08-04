@@ -1,0 +1,34 @@
+# Connect Agent — VM / bare-metal (Developer-Reference: "Connect Agent runs
+# as a systemd unit and listens on loopback by default (127.0.0.1), with one
+# port per Active Registration... No inbound Internet port is required.")
+#
+# Install:
+#   sudo cp connect-agent.service /etc/systemd/system/
+#   sudo cp connect-agent.env.example /etc/connect-agent/connect-agent.env   # then edit
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now connect-agent
+#
+# Pair with host-firewall-nftables.example.sh or host-firewall-ufw.example.sh
+# so only local processes can dial the Agent's listen ports (L3-ACL-03).
+
+[Unit]
+Description=Abluva Connect Agent (Fabric tunnel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/connect-agent/connect-agent.env
+ExecStart=/usr/local/bin/connect-agent
+Restart=on-failure
+RestartSec=2
+# No new privileges; Agent needs no root capability once the binary is running.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# Cert/state dirs must be writable — override strict ProtectSystem for these only.
+ReadWritePaths=/var/run/abluva /etc/connect-agent/tls
+
+[Install]
+WantedBy=multi-user.target

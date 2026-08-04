@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="0 0 1600 720" role="img" aria-labelledby="title desc">
+  <title id="title">B-A1 Platform service to Platform service</title>
+  <desc id="desc">Same-cluster A1 path: discovery to ztunnel L4 mTLS, optional waypoint, to unified-access. No Gateway, Agent, or connect.abluva.com.</desc>
+
+  <style>
+    .title { font: 600 20px Inter, -apple-system, 'Segoe UI', system-ui, sans-serif; fill: #FFFFFF; letter-spacing: -0.02em; }
+    .subtitle { font: 400 12px Inter, system-ui, sans-serif; fill: rgba(255,255,255,0.88); }
+    .zone { font: 600 11px Inter, system-ui, sans-serif; fill: #667085; letter-spacing: 0.08em; text-transform: uppercase; }
+    .cardTitle { font: 600 13px Inter, system-ui, sans-serif; fill: #344054; }
+    .cardBody { font: 400 11px Inter, system-ui, sans-serif; fill: #667085; }
+    .mono { font: 500 10px ui-monospace, 'SF Mono', Menlo, monospace; fill: #344054; }
+    .footer { font: 400 10px Inter, system-ui, sans-serif; fill: #667085; }
+    .brandHdr { font: 600 11px Inter, system-ui, sans-serif; fill: #FFFFFF; letter-spacing: 0.06em; text-transform: uppercase; }
+    .pathLbl { font: 600 10px Inter, system-ui, sans-serif; fill: #16A34A; }
+    .callout { font: 600 11px Inter, system-ui, sans-serif; fill: #344054; }
+  </style>
+
+  <defs>
+    <marker id="arrowGreen" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#16A34A"/>
+    </marker>
+    <clipPath id="clipOke"><rect x="48" y="80" width="1504" height="560" rx="12"/></clipPath>
+  </defs>
+
+  <rect width="1600" height="720" fill="#FCFCFD"/>
+
+  <rect x="0" y="0" width="1600" height="56" fill="#674EA7"/>
+  <text x="48" y="26" class="title">B-A1 &#183; Platform service &#8594; Platform service</text>
+  <text x="48" y="44" class="subtitle">In-cluster DNS + ztunnel L4 mTLS &#183; optional waypoint &#183; no Gateway / Agent / connect.abluva.com</text>
+  <text x="1552" y="34" text-anchor="end" class="subtitle">abluva.com</text>
+
+  <!-- OKE -->
+  <g clip-path="url(#clipOke)">
+    <rect x="48" y="80" width="1504" height="560" rx="12" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+    <rect x="48" y="80" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/ContainerEngineForKubernetes.svg" x="48" y="80" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="92" y="100" class="zone">Platform OKE &#183; private subnet</text>
+  <text x="320" y="100" class="cardBody">Ambient enrolled &#183; same cluster only</text>
+
+  <!-- ambient-plane strip -->
+  <rect x="72" y="120" width="1456" height="56" rx="8" fill="#FFFAEB" stroke="#F79009" stroke-width="1.5"/>
+  <text x="88" y="144" class="cardTitle">ambient-plane</text>
+  <text x="88" y="162" class="cardBody">ztunnel DaemonSet on every node &#183; L4 mTLS for enrolled namespaces &#183; not Ghostunnel</text>
+
+  <!-- SaaS namespace -->
+  <rect x="72" y="200" width="1456" height="320" rx="10" fill="#FFFFFF" stroke="#674EA7" stroke-width="1.5"/>
+  <rect x="72" y="200" width="1456" height="28" rx="10" fill="#674EA7"/>
+  <rect x="72" y="216" width="1456" height="12" fill="#674EA7"/>
+  <text x="88" y="218" class="brandHdr">SaaS namespace &#183; control plane + UI APIs</text>
+
+  <!-- discovery -->
+  <rect x="104" y="256" width="280" height="200" rx="8" fill="#FFFFFF" stroke="#B4A7D6" stroke-width="1.5"/>
+  <text x="120" y="284" class="cardTitle">discovery</text>
+  <text x="120" y="308" class="cardBody">Caller SaaS API</text>
+  <text x="120" y="332" class="mono">discovery.&lt;saas-ns&gt;.svc</text>
+  <text x="120" y="360" class="cardBody">Plain K8s Service DNS</text>
+  <text x="120" y="380" class="cardBody">No mesh SDK</text>
+  <text x="120" y="400" class="cardBody">No connect.abluva.com</text>
+  <text x="120" y="432" class="cardBody">Left &#8594; right flow</text>
+
+  <!-- ztunnel hop 1 -->
+  <rect x="448" y="280" width="200" height="152" rx="8" fill="#ECFDF3" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="464" y="308" class="cardTitle">ztunnel</text>
+  <text x="464" y="332" class="cardBody">L4 mTLS hop</text>
+  <text x="464" y="356" class="cardBody">Per-node Ambient</text>
+  <text x="464" y="380" class="mono">HBONE / mTLS</text>
+  <text x="464" y="408" class="cardBody">Always on A1</text>
+
+  <!-- optional waypoint -->
+  <rect x="712" y="280" width="220" height="152" rx="8" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="728" y="308" class="cardTitle">waypoint (optional)</text>
+  <text x="728" y="332" class="cardBody">L7 HTTP / gRPC only</text>
+  <text x="728" y="356" class="cardBody">Retries &#183; timeouts</text>
+  <text x="728" y="380" class="cardBody">Services &#8212; never Resource</text>
+  <text x="728" y="408" class="cardBody">Omit if unused</text>
+
+  <!-- ztunnel hop 2 -->
+  <rect x="996" y="280" width="200" height="152" rx="8" fill="#ECFDF3" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="1012" y="308" class="cardTitle">ztunnel</text>
+  <text x="1012" y="332" class="cardBody">L4 mTLS hop</text>
+  <text x="1012" y="356" class="cardBody">Destination side</text>
+  <text x="1012" y="380" class="mono">Same DaemonSet</text>
+  <text x="1012" y="408" class="cardBody">Enrolled ns</text>
+
+  <!-- unified-access -->
+  <rect x="1260" y="256" width="240" height="200" rx="8" fill="#FFFFFF" stroke="#B4A7D6" stroke-width="1.5"/>
+  <text x="1276" y="284" class="cardTitle">unified-access</text>
+  <text x="1276" y="308" class="cardBody">Callee SaaS API</text>
+  <text x="1276" y="332" class="mono">unified-access.&lt;saas-ns&gt;.svc</text>
+  <text x="1276" y="360" class="cardBody">Same SaaS namespace</text>
+  <text x="1276" y="380" class="cardBody">No Gateway hop</text>
+  <text x="1276" y="400" class="cardBody">No Agent / fabric-edge</text>
+  <text x="1276" y="432" class="cardBody">Destination</text>
+
+  <!-- Connectors -->
+  <path d="M384 356 H440" fill="none" stroke="#16A34A" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <path d="M648 356 H704" fill="none" stroke="#16A34A" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <path d="M932 356 H988" fill="none" stroke="#16A34A" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <path d="M1196 356 H1252" fill="none" stroke="#16A34A" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+
+  <rect x="500" y="248" width="96" height="18" rx="3" fill="#FFFFFF" stroke="#BBF7D0"/>
+  <text x="512" y="261" class="pathLbl">L4 mTLS</text>
+  <rect x="764" y="248" width="116" height="18" rx="3" fill="#FFFFFF" stroke="#D0D5DD"/>
+  <text x="772" y="261" class="cardBody">optional L7</text>
+  <rect x="1048" y="248" width="96" height="18" rx="3" fill="#FFFFFF" stroke="#BBF7D0"/>
+  <text x="1060" y="261" class="pathLbl">L4 mTLS</text>
+
+  <!-- Callouts -->
+  <rect x="72" y="544" width="700" height="72" rx="8" fill="#ECFDF3" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="88" y="568" class="callout">What this path is</text>
+  <text x="88" y="588" class="cardBody">Platform pod &#8594; Platform pod on the same OKE cluster</text>
+  <text x="88" y="608" class="cardBody">AuthN = Ambient workload identity &#183; no StreamOpen / registration</text>
+
+  <rect x="800" y="544" width="728" height="72" rx="8" fill="#FEF3F2" stroke="#DC2626" stroke-width="1.5"/>
+  <text x="816" y="568" class="callout">What this path is not</text>
+  <text x="816" y="588" class="cardBody">No Mesh NLB &#183; no Ghostunnel &#183; no fabric-control Gateway</text>
+  <text x="816" y="608" class="cardBody">No Connect Agent &#183; no fabric.abluva.com &#183; no *.connect.abluva.com</text>
+
+  <text x="48" y="680" class="footer">B-A1 = Ambient-only same-cluster Services &#183; waypoint optional for HTTP/gRPC &#183; never on Resource paths &#183; Icons: OCI Designer Toolkit</text>
+</svg>

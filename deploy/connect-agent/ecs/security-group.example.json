@@ -1,0 +1,42 @@
+{
+  "_comment": [
+    "L3-ACL-02 (Architecture-Spec §14 item 1 + item 7). Developer-Reference:",
+    "'Connect Agent runs as a sidecar in the ECS task. Customer workloads dial",
+    "127.0.0.1 ... Security-group templates in the install bundle must allow",
+    "task-to-sidecar local dial and deny cross-task dial to Agent ports.'",
+    "",
+    "ECS tasks on awsvpc networking share one ENI/security-group per task, so",
+    "there is no cross-container SG boundary to write within a single task —",
+    "127.0.0.1 dial between containers in the same task is unconditionally",
+    "allowed by the network namespace itself and cannot be blocked by an SG.",
+    "What an SG *can* and must do is deny any OTHER task's ENI from reaching",
+    "this task's Agent ports over the VPC network, which is what the ingress",
+    "rule below encodes: only this task's own SG (loopback-equivalent at the",
+    "SG-membership level) may reach the Agent ports; no other source is listed.",
+    "",
+    "The full ecs-task-definition.json (sidecar container spec, port",
+    "publishing) remains blocked on L3-POC-ECS (idle-timeout / task-recycle",
+    "PoC in L2-Design.docx §H.8) — this SG template ships independently",
+    "because it answers a different question (network ACL) than the PoC",
+    "(yamux keepalive survival under Fargate's idle/recycle behavior)."
+  ],
+  "GroupDescription": "connect-agent-REPLACE_TENANT — deny cross-task dial to Agent ports",
+  "SecurityGroupIngress": [
+    {
+      "IpProtocol": "tcp",
+      "FromPort": 9443,
+      "ToPort": 9459,
+      "_comment": "Self-referencing rule: only ENIs already in this SG may dial these ports.",
+      "SourceSecurityGroupId": "REPLACE_WITH_THIS_GROUPS_OWN_ID"
+    }
+  ],
+  "SecurityGroupEgress": [
+    {
+      "IpProtocol": "tcp",
+      "FromPort": 8443,
+      "ToPort": 8443,
+      "CidrIp": "REPLACE_GATEWAY_CIDR_OR_PREFIX_LIST",
+      "_comment": "Outbound-only to the Gateway (Developer-Reference: 'Outbound-only to the Gateway address remains mandatory')."
+    }
+  ]
+}

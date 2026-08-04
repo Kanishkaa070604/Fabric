@@ -1,0 +1,7 @@
+# Moved: Lease-based control-plane is now the production default.
+#
+# Use:  deploy/control-plane/deployment.yaml
+# Escape hatch (no Lease RBAC): deploy/control-plane/deployment-split-reconciler.yaml
+#
+# This filename is kept so older docs/links do not 404; it is not a second
+# install path. Apply deployment.yaml only.

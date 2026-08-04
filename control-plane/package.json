@@ -1,0 +1,30 @@
+{
+  "name": "@abluva/fabric-control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fabric control plane — Controllers, Sequelize store, Access API client",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "migrate": "sequelize-cli db:migrate",
+    "migrate:undo": "sequelize-cli db:migrate:undo",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test test/*.test.ts test/**/*.test.ts"
+  },
+  "dependencies": {
+    "pg": "^8.13.1",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.37.5",
+    "uuid": "^11.0.3",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/uuid": "^10.0.0",
+    "sequelize-cli": "^6.6.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

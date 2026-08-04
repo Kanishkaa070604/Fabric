@@ -1,0 +1,265 @@
+# Connect Agent DaemonSet — customer cluster
+# Routing note: Agent↔Gateway is raw mTLS TCP. Corporate HTTP(S)_PROXY must NOT
+# intercept that tunnel. Always set NO_PROXY to the Gateway host + cluster internals.
+#
+# Identity note (Architecture-Resolutions.md Part 9 / PRODUCTION-READINESS.md
+# D2/D3): identity (leaf cert, agent-id, API bearer) is stored through the
+# pluggable identity.Store abstraction. This manifest uses
+# FABRIC_IDENTITY_STORE=kubernetes (a per-node Secret, RBAC below) — the
+# survives-rollout guarantee that used to require hostPath now comes from
+# the Secret instead, so the local cache volume can be plain emptyDir. See
+# the agent-identity volume below for the FABRIC_IDENTITY_STORE=file fallback.
+#
+# Service routing note (fix for "no Kubernetes Service routing exists for
+# more than one registration per tenant"): the Agent opens one listener per
+# Active registration (base port + N, connect-agent/internal/watch/watch.go),
+# not a fixed one or two ports. Below, the Agent itself (not the
+# control-plane, which has no network path into this cluster at all --
+# Agent↔Platform is outbound-only by design) reconciles a single Service
+# object whose ports always mirror its own current registrations, via
+# FABRIC_K8S_SERVICE_MANAGE_ENABLED=1 in the container env below. The
+# feature itself defaults to off in the code (any deployment that doesn't
+# set that env var is completely unaffected); this manifest turns it on
+# because the matching RBAC (Role + RoleBinding right below, scoped to
+# get/create/patch on Service in this one namespace only) ships in the
+# same file -- if you strip the RBAC, also unset the env var, or every
+# tick's reconcile will just log a permission error and retry (never
+# crashes the Agent, but also never converges).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: connect-agent
+  namespace: TENANT_NAMESPACE
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: connect-agent-service-manager
+  namespace: TENANT_NAMESPACE
+rules:
+  # get: EnsureService's PATCH needs to see a 404 to know whether to fall
+  # back to create; list/watch aren't needed, this Agent only ever touches
+  # the one Service it's configured with (FABRIC_K8S_SERVICE_NAME).
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "create", "patch"]
+  # Identity store (FABRIC_IDENTITY_STORE=kubernetes, recommended -- replaces
+  # hostPath, see identity/k8ssecret and PRODUCTION-READINESS.md D2/D3):
+  # each DaemonSet replica owns exactly one Secret, named from its own node
+  # (identity/k8ssecret.NameForNode), so this get/create/patch scope never
+  # needs to widen even at large node counts. Leave this rule in place even
+  # if FABRIC_IDENTITY_STORE is left at "file" -- it's inert without the env
+  # var, same "off unless configured" posture as the Service rule above.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: connect-agent-service-manager
+  namespace: TENANT_NAMESPACE
+subjects:
+  - kind: ServiceAccount
+    name: connect-agent
+    namespace: TENANT_NAMESPACE
+roleRef:
+  kind: Role
+  name: connect-agent-service-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: connect-agent
+  namespace: TENANT_NAMESPACE
+  labels:
+    app: connect-agent
+spec:
+  type: ClusterIP
+  selector:
+    app: connect-agent
+  # Required (fix for "internalTrafficPolicy: Local is missing"): this
+  # Service fronts a DaemonSet whose replicas independently, stickily
+  # assign their own ports per node (syncListeners' "keep existing" logic
+  # -- see watch.go). The SAME registration ID is not guaranteed to map to
+  # the SAME port on two different nodes if they observed registration
+  # churn in different order/timing. Without Local, a plain Service can
+  # load-balance a connection to a node whose port<->registration mapping
+  # doesn't match the caller's intent, silently connecting to the wrong
+  # destination. The port list below is only this object's initial state
+  # at `kubectl apply` time -- shipped mainly so this file's topology is
+  # readable end to end. Within one poll interval of any Agent pod coming
+  # up (FABRIC_K8S_SERVICE_MANAGE_ENABLED=1 in the container env below), the
+  # reconciler PATCHes it to whatever the tenant's real registrations are,
+  # including replacing this placeholder port entirely if there are zero
+  # registrations yet, or several if there's more than one.
+  internalTrafficPolicy: Local
+  ports:
+    - name: svc-conn
+      port: 9443
+      targetPort: 9443
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: connect-agent
+  namespace: TENANT_NAMESPACE
+  labels:
+    app: connect-agent
+spec:
+  selector:
+    matchLabels:
+      app: connect-agent
+  template:
+    metadata:
+      labels:
+        app: connect-agent
+    spec:
+      # No hostNetwork / privileged — ADR-001
+      serviceAccountName: connect-agent
+      containers:
+        - name: connect-agent
+          image: your-registry/connect-agent:REPLACE
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: FABRIC_GATEWAY_ADDRESS
+              value: "fabric.platform.example.com:8443"
+            - name: FABRIC_TENANT_ID
+              value: "REPLACE_TENANT_UUID"
+            - name: FABRIC_CONTROL_PLANE_URL
+              value: "https://control-plane.platform.example.com"
+            # L3-AGT-02 + identity.Store (Architecture-Resolutions.md Part 9):
+            # leaf is issued at enroll and kept in sync by whichever
+            # identity.Store FABRIC_IDENTITY_STORE selects below. CertDir here
+            # is always a *local cache* -- for IdentityStore=kubernetes the
+            # real source of truth is the per-node Secret; for IdentityStore=
+            # file (or this var unset) CertDir is the only copy, same as
+            # before this abstraction existed. Shared install Secret
+            # (agent-trust below) stays CA/trust only either way -- no
+            # tls.crt/tls.key ever goes in it.
+            - name: FABRIC_AGENT_CERT_DIR
+              value: /var/run/abluva/tls
+            - name: FABRIC_AGENT_CA_FILE
+              value: /etc/connect-agent/tls/ca.crt
+            - name: FABRIC_AGENT_ID_PATH
+              value: /var/run/abluva/agent-id
+            # Recommended: "kubernetes" -- identity lives in a per-node
+            # Secret (RBAC above), so CertDir can be a plain emptyDir and
+            # still survive DaemonSet rollout / pod recreate. This replaces
+            # hostPath (D2-A) without any PSA exception. Set to "file" to
+            # keep today's hostPath-based behavior unchanged (see the
+            # agent-identity volume below either way -- emptyDir is safe
+            # to use once FABRIC_IDENTITY_STORE=kubernetes, hostPath is
+            # required if you leave this at "file").
+            - name: FABRIC_IDENTITY_STORE
+              value: "kubernetes"
+            - name: FABRIC_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Supply once per install window (multi-redeem until bootstrap_expires_at).
+            # - name: FABRIC_BOOTSTRAP_TOKEN
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: fabric-edge-bootstrap
+            #       key: bootstrap_token
+            # G-CRED-1: no Day-1 seed needed. After enroll, the Agent
+            # derives its bearer from the leaf cert via PoP pull
+            # (POST /v1/agents/:id/api-token/current). Refresh interval
+            # below; CP reuses the same bearer until near expiry (D1).
+            - name: FABRIC_AGENT_TOKEN_REFRESH
+              value: "1h"
+            # D3-AUTO: leaf auto-rotation is always on (certlife.StartLoop).
+            # Manual FABRIC_AGENT_ROTATE=1 is emergency/compromise only —
+            # set it for one rollout, then clear. It is PoP-authenticated
+            # (no bearer dependency) and works regardless of identity store.
+            # - name: FABRIC_AGENT_ROTATE
+            #   value: "1"
+            - name: FABRIC_LOG_LEVEL
+              value: "info"
+            # Critical for routing: bypass HTTP proxies for Fabric tunnel + in-cluster
+            - name: NO_PROXY
+              value: "fabric.platform.example.com,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.svc.cluster.local,.cluster.local"
+            - name: no_proxy
+              value: "fabric.platform.example.com,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.svc.cluster.local,.cluster.local"
+            # Do NOT set HTTP_PROXY/HTTPS_PROXY on this container unless required for
+            # unrelated egress; if the node injects them, NO_PROXY above is mandatory.
+            # Opt-in: reconciles the Service above so its ports always match
+            # this Agent's own current registrations (one port each,
+            # base..base+N-1) instead of the single static port shown as a
+            # placeholder there. Requires the Role/RoleBinding shipped in
+            # this same file. Off entirely by default -- see this file's
+            # header comment and deploy/connect-agent/README.md.
+            - name: FABRIC_K8S_SERVICE_MANAGE_ENABLED
+              value: "1"
+            - name: FABRIC_K8S_SERVICE_NAME
+              value: "connect-agent"
+            - name: FABRIC_K8S_SERVICE_SELECTOR
+              value: "app=connect-agent"
+          ports:
+            # Informational only (Pod containerPort doesn't restrict what a
+            # container can actually bind) -- the Agent opens one listener
+            # per Active registration starting at FABRIC_LISTEN_BASE_PORT
+            # (default 9443), not a fixed pair. Widen this range to match
+            # this tenant's real registration count, same as
+            # networkpolicy-example.yaml's endPort already does.
+            - name: svc-conn
+              containerPort: 9443
+            - name: svc-conn-2
+              containerPort: 9444
+          volumeMounts:
+            - name: agent-trust
+              mountPath: /etc/connect-agent/tls
+              readOnly: true
+            - name: agent-identity
+              mountPath: /var/run/abluva
+          readinessProbe:
+            exec:
+              command: ["/connect-agent", "ready"]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["/connect-agent", "health"]
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "200m", memory: "128Mi" }
+      volumes:
+        # CA/trust only (ca.crt). Do not put a shared Agent leaf here — that
+        # collapses N DaemonSet pods onto one Gateway tunnel slot.
+        - name: agent-trust
+          secret:
+            secretName: connect-agent-tls
+        # Local cache for whichever identity.Store FABRIC_IDENTITY_STORE above
+        # selects. With the recommended "kubernetes" value, a per-node
+        # Secret (RBAC above) is the real source of truth and this can
+        # safely be emptyDir: if the Pod is recreated, the fresh cache
+        # misses locally and Load() re-fetches from the Secret before the
+        # tunnel ever dials (see identity/k8ssecret.Store.Load) -- no
+        # re-enroll, no re-approve, no hostPath, no PSA exception.
+        #
+        # If you instead set FABRIC_IDENTITY_STORE=file (keeps pre-refactor
+        # behavior), switch this back to hostPath -- emptyDir alone loses
+        # identity on every Pod recreate in that mode. See
+        # PRODUCTION-READINESS.md D2/D3 for the full history of why
+        # hostPath was the v1 default before this Store abstraction existed.
+        - name: agent-identity
+          emptyDir: {}
+        # Legacy fallback (FABRIC_IDENTITY_STORE=file only) — uncomment and
+        # remove the emptyDir entry above if you are not yet ready to grant
+        # the Secret RBAC:
+        # - name: agent-identity
+        #   hostPath:
+        #     path: /var/lib/abluva/connect-agent/TENANT_NAMESPACE
+        #     type: DirectoryOrCreate
+---
+# Optional: if the cluster uses a cluster-wide HTTP proxy via admission,
+# document that Connect Agent pods must inherit NO_PROXY covering FABRIC_GATEWAY_ADDRESS.
+# http_proxy is never required for Agent→Gateway connectivity and usually breaks it.

@@ -1,0 +1,183 @@
+# ESCAPE HATCH — not the production default.
+#
+# Production on Platform Kubernetes is deploy/control-plane/deployment.yaml
+# (single Deployment + Lease election). Use THIS file only when you cannot
+# grant coordination.k8s.io Lease RBAC (air-gapped policy, etc.) and accept
+# the tradeoff: DNS updates pause while the one reconciler pod restarts,
+# and a human must never scale the reconciler Deployment past replicas: 1.
+#
+#   - fabric-control-plane: API replicas only. FABRIC_DNS_RECONCILE_ENABLED unset.
+#   - fabric-control-plane-dns-reconciler: replicas MUST stay 1, with
+#     FABRIC_DNS_RECONCILE_ENABLED=1 and FABRIC_DNS_LEADER_ELECTION=0 (required —
+#     in-cluster the binary otherwise defaults election ON, which needs the
+#     Lease RBAC this pattern deliberately avoids).
+#
+# Do NOT apply this alongside deployment.yaml.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fabric-control-plane
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  # Selects pods from BOTH Deployments below -- the reconciler replica is a
+  # perfectly normal control-plane instance for API traffic too, it just
+  # also happens to run the reconciler loop.
+  selector:
+    app: fabric-control-plane
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fabric-control-plane
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  replicas: 2 # scale freely -- see note above
+  selector:
+    matchLabels:
+      app: fabric-control-plane
+      role: general
+  template:
+    metadata:
+      labels:
+        app: fabric-control-plane
+        role: general
+    spec:
+      containers:
+        - name: control-plane
+          image: your-registry/fabric-control-plane:REPLACE
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: FABRIC_STORE
+              value: postgres
+            - name: FABRIC_CONTROL_PLANE_PORT
+              value: "8080"
+            - name: FABRIC_LOG_LEVEL
+              value: info
+            - name: ABLV_ACCESS_URL
+              value: http://172.16.1.101:3000/v1/access
+            - name: ABLV_PLATFORM_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-platform-ids
+                  key: tenant_id
+            - name: ABLV_PLATFORM_ENVIRONMENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-platform-ids
+                  key: environment_id
+            - name: FABRIC_CONTROL_PLANE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-control-plane-auth
+                  key: bearer_token
+            - name: FABRIC_DUAL_CONTROL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-control-plane-auth
+                  key: dual_control_token
+            - name: FABRIC_GATEWAY_INBOUND_DOMAIN
+              value: connect.fabric
+            # L3-DNS-02: intentionally absent here. Set only on the
+            # fabric-control-plane-dns-reconciler Deployment below.
+            # - name: FABRIC_DNS_RECONCILE_ENABLED
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fabric-control-plane-dns-reconciler
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  replicas: 1 # MUST stay 1 -- see note at top of this file / L3-DNS-02. Do not scale.
+  selector:
+    matchLabels:
+      app: fabric-control-plane
+      role: dns-reconciler
+  template:
+    metadata:
+      labels:
+        app: fabric-control-plane
+        role: dns-reconciler
+    spec:
+      containers:
+        - name: control-plane
+          image: your-registry/fabric-control-plane:REPLACE
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: FABRIC_STORE
+              value: postgres
+            - name: FABRIC_CONTROL_PLANE_PORT
+              value: "8080"
+            - name: FABRIC_LOG_LEVEL
+              value: info
+            - name: ABLV_ACCESS_URL
+              value: http://172.16.1.101:3000/v1/access
+            - name: ABLV_PLATFORM_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-platform-ids
+                  key: tenant_id
+            - name: ABLV_PLATFORM_ENVIRONMENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-platform-ids
+                  key: environment_id
+            - name: FABRIC_CONTROL_PLANE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-control-plane-auth
+                  key: bearer_token
+            - name: FABRIC_DUAL_CONTROL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-control-plane-auth
+                  key: dual_control_token
+            - name: FABRIC_GATEWAY_INBOUND_DOMAIN
+              value: connect.fabric
+            # The one flag that makes this Deployment different from the
+            # general one above. HOSTNAME (Kubernetes sets this to the pod
+            # name automatically) is logged on every dns_reconciler_started
+            # line specifically so "grep dns_reconciler_started across all
+            # control-plane logs, confirm exactly one instance_id" is a real,
+            # cheap production audit you can run at any time.
+            - name: FABRIC_DNS_RECONCILE_ENABLED
+              value: "1"
+            # Required for this escape hatch: turn OFF the production-default
+            # in-cluster Lease election (see loadDnsReconcilerConfig).
+            - name: FABRIC_DNS_LEADER_ELECTION
+              value: "0"
+            - name: FABRIC_DNS_TARGET
+              value: fabric.platform.example.com
+            - name: FABRIC_DNS_PROVIDER
+              value: webhook
+            - name: FABRIC_DNS_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-dns-webhook
+                  key: url
+            - name: FABRIC_DNS_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-dns-webhook
+                  key: token
+            # Persists WebhookDnsProvider's applied-set across this pod's own
+            # restarts (see bug-finding pass #10). Local emptyDir is fine
+            # precisely because this Deployment never scales past 1 -- do
+            # NOT point this at a shared/network volume if you ever did run
+            # more than one reconciler replica, that would just relocate
+            # FileDnsProvider's exact race onto this file instead of fixing
+            # anything.
+            - name: FABRIC_DNS_WEBHOOK_STATE_PATH
+              value: /var/run/fabric/dns-webhook-state.json
+          volumeMounts:
+            - name: dns-state
+              mountPath: /var/run/fabric
+      volumes:
+        - name: dns-state
+          emptyDir: {}

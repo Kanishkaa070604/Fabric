@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Abluva Platform on Oracle Cloud Infrastructure</title>
+  <desc id="desc">OCI topology: public Flexible LB and Mesh NLB, private OKE with fabric-control and SaaS namespaces, Postgres, Vault, customer fabric-edge. OCI icons flush top-left with a light border only (no fill).</desc>
+
+  <!-- Grid: 24px gutters; icons 32x32 flush at card origin; arrow gutter y=328..352 -->
+
+  <style>
+    .title { font: 600 20px Inter, -apple-system, 'Segoe UI', system-ui, sans-serif; fill: #FFFFFF; letter-spacing: -0.02em; }
+    .subtitle { font: 400 12px Inter, system-ui, sans-serif; fill: rgba(255,255,255,0.88); }
+    .zone { font: 600 11px Inter, system-ui, sans-serif; fill: #667085; letter-spacing: 0.08em; text-transform: uppercase; }
+    .cardTitle { font: 600 13px Inter, system-ui, sans-serif; fill: #344054; }
+    .cardBody { font: 400 11px Inter, system-ui, sans-serif; fill: #667085; }
+    .mono { font: 500 10px ui-monospace, 'SF Mono', Menlo, monospace; fill: #344054; }
+    .footer { font: 400 10px Inter, system-ui, sans-serif; fill: #667085; }
+    .brandHdr { font: 600 11px Inter, system-ui, sans-serif; fill: #FFFFFF; letter-spacing: 0.06em; text-transform: uppercase; }
+    .pathLbl { font: 600 10px Inter, system-ui, sans-serif; fill: #674EA7; }
+  </style>
+
+  <defs>
+    <marker id="arrowGray" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#667085"/>
+    </marker>
+    <marker id="arrowBrand" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#674EA7"/>
+    </marker>
+
+    <!-- Clip each card so the 32&#215;32 bordered icon sits flush in the rounded top-left -->
+    <clipPath id="clipExt"><rect x="48" y="72" width="1504" height="52" rx="10"/></clipPath>
+    <clipPath id="clipRegion"><rect x="48" y="140" width="1096" height="720" rx="12"/></clipPath>
+    <clipPath id="clipVcn"><rect x="64" y="176" width="1064" height="668" rx="10"/></clipPath>
+    <clipPath id="clipIgw"><rect x="96" y="244" width="176" height="68" rx="8"/></clipPath>
+    <clipPath id="clipFlex"><rect x="288" y="244" width="280" height="68" rx="8"/></clipPath>
+    <clipPath id="clipNlb"><rect x="592" y="244" width="480" height="68" rx="8"/></clipPath>
+    <clipPath id="clipPriv"><rect x="80" y="352" width="1032" height="476" rx="10"/></clipPath>
+    <clipPath id="clipNat"><rect x="96" y="392" width="128" height="88" rx="8"/></clipPath>
+    <clipPath id="clipOke"><rect x="240" y="392" width="656" height="416" rx="10"/></clipPath>
+    <clipPath id="clipPg"><rect x="912" y="392" width="184" height="112" rx="8"/></clipPath>
+    <clipPath id="clipVault"><rect x="912" y="520" width="184" height="100" rx="8"/></clipPath>
+    <clipPath id="clipNsg"><rect x="912" y="636" width="184" height="100" rx="8"/></clipPath>
+    <clipPath id="clipCust"><rect x="1168" y="140" width="384" height="720" rx="12"/></clipPath>
+    <clipPath id="clipCf"><rect x="1184" y="188" width="352" height="64" rx="8"/></clipPath>
+  </defs>
+
+  <rect width="1600" height="900" fill="#FCFCFD"/>
+
+  <!-- Header -->
+  <rect x="0" y="0" width="1600" height="56" fill="#674EA7"/>
+  <text x="48" y="26" class="title">Abluva Platform on OCI</text>
+  <text x="48" y="44" class="subtitle">Flexible LB &#183; Mesh NLB &#183; private OKE &#183; Postgres &#183; Vault</text>
+  <text x="1552" y="34" text-anchor="end" class="subtitle">abluva.com</text>
+
+  <!-- External -->
+  <g clip-path="url(#clipExt)">
+    <rect x="48" y="72" width="1504" height="52" rx="10" fill="#FFFAEB" stroke="#F79009" stroke-width="1.5"/>
+    <rect x="48" y="72" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/DomainNameSystemDNS.svg" x="48" y="72" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="92" y="92" class="zone">External</text>
+  <text x="92" y="110" class="cardBody">Internet &#183; Cloudflare: A fabric.abluva.com + connect via Path C CNAME OR Path B NS (pick one) &#183; Agents</text>
+
+  <!-- OCI Region -->
+  <g clip-path="url(#clipRegion)">
+    <rect x="48" y="140" width="1096" height="720" rx="12" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+    <rect x="48" y="140" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/DedicatedRegion.svg" x="48" y="140" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="92" y="160" class="zone">OCI Region</text>
+
+  <!-- VCN -->
+  <g clip-path="url(#clipVcn)">
+    <rect x="64" y="176" width="1064" height="668" rx="10" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+    <rect x="64" y="176" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/VirtualCloudNetworkVCN.svg" x="64" y="176" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="108" y="196" class="zone">VCN</text>
+
+  <!-- Public subnet -->
+  <rect x="80" y="216" width="1032" height="112" rx="10" fill="#EFF8FF" stroke="#2E90FA" stroke-width="1.5"/>
+  <text x="96" y="236" class="zone">Public subnet</text>
+
+  <!-- IGW -->
+  <g clip-path="url(#clipIgw)">
+    <rect x="96" y="244" width="176" height="68" rx="8" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+    <rect x="96" y="244" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/InternetGateway.svg" x="96" y="244" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="140" y="264" class="cardTitle">Internet Gateway</text>
+  <text x="108" y="292" class="cardBody">North-south entry</text>
+
+  <!-- Flexible LB -->
+  <g clip-path="url(#clipFlex)">
+    <rect x="288" y="244" width="280" height="68" rx="8" fill="#FFFFFF" stroke="#2E90FA" stroke-width="1.5"/>
+    <rect x="288" y="244" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/LoadBalancerLB.svg" x="288" y="244" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="332" y="264" class="cardTitle">Flexible LB</text>
+  <text x="300" y="288" class="mono">product / UI HTTPS</text>
+  <text x="300" y="302" class="cardBody">Not the mesh tunnel path</text>
+
+  <!-- Mesh NLB (Agent :8443 + inbound :8444; connect.* DNS is external, resolves here) -->
+  <g clip-path="url(#clipNlb)">
+    <rect x="592" y="244" width="480" height="68" rx="8" fill="#FFFFFF" stroke="#674EA7" stroke-width="1.5"/>
+    <rect x="592" y="244" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/NetworkLoadBalancerLB.svg" x="592" y="244" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="636" y="264" class="cardTitle">Network Load Balancer &#183; mesh only</text>
+  <text x="604" y="288" class="mono">fabric.abluva.com &#183; :8443 Agent &#183; :8444 inbound SNI</text>
+  <text x="604" y="302" class="cardBody">PROXY off &#183; *.connect.abluva.com resolves to this VIP (DNS external)</text>
+
+  <!-- Private subnet -->
+  <g clip-path="url(#clipPriv)">
+    <rect x="80" y="352" width="1032" height="476" rx="10" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+  </g>
+  <text x="96" y="372" class="zone">Private subnet</text>
+
+  <!-- NAT -->
+  <g clip-path="url(#clipNat)">
+    <rect x="96" y="392" width="128" height="88" rx="8" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+    <rect x="96" y="392" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/NATGateway.svg" x="96" y="392" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="108" y="444" class="cardTitle">NAT Gateway</text>
+  <text x="108" y="464" class="cardBody">OKE egress</text>
+
+  <!-- OKE -->
+  <g clip-path="url(#clipOke)">
+    <rect x="240" y="392" width="656" height="416" rx="10" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+    <rect x="240" y="392" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/ContainerEngineForKubernetes.svg" x="240" y="392" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="284" y="412" class="cardTitle">OKE Cluster</text>
+  <text x="400" y="412" class="cardBody">Private node pools &#183; Ambient enrolled</text>
+
+  <!-- fabric-control (brand header &#8212; no cloud icon) -->
+  <rect x="256" y="432" width="304" height="188" rx="8" fill="#FFFFFF" stroke="#674EA7" stroke-width="1.5"/>
+  <rect x="256" y="432" width="304" height="28" rx="8" fill="#674EA7"/>
+  <rect x="256" y="448" width="304" height="12" fill="#674EA7"/>
+  <text x="272" y="450" class="brandHdr">fabric-control</text>
+  <text x="272" y="474" class="cardBody">Network plane</text>
+  <rect x="272" y="488" width="272" height="56" rx="6" fill="#FFFFFF" stroke="#B4A7D6"/>
+  <text x="288" y="510" class="cardTitle">Gateway + Ghostunnel</text>
+  <text x="288" y="528" class="cardBody">NLB backend &#183; mTLS stream relay</text>
+  <text x="272" y="564" class="mono">fabric-gateway.fabric-control.svc:9090</text>
+  <text x="272" y="584" class="cardBody">Gateway TLS secrets &#183; Day-0</text>
+  <text x="272" y="602" class="cardBody">Calls CP via cluster DNS</text>
+
+  <!-- SaaS ns (brand header &#8212; no cloud icon) -->
+  <rect x="576" y="432" width="304" height="224" rx="8" fill="#FFFFFF" stroke="#674EA7" stroke-width="1.5"/>
+  <rect x="576" y="432" width="304" height="28" rx="8" fill="#674EA7"/>
+  <rect x="576" y="448" width="304" height="12" fill="#674EA7"/>
+  <text x="592" y="450" class="brandHdr">SaaS namespace</text>
+  <text x="592" y="468" class="mono">3407e407-792a-452d-&#8230;-9098-8c</text>
+  <text x="592" y="482" class="cardBody">Control plane + UI APIs</text>
+  <rect x="592" y="492" width="272" height="48" rx="6" fill="#FFFFFF" stroke="#B4A7D6"/>
+  <text x="608" y="512" class="cardTitle">Control Plane + DNS webhook</text>
+  <text x="608" y="528" class="cardBody">Config / desired-state</text>
+  <rect x="592" y="552" width="128" height="44" rx="6" fill="#FFFFFF" stroke="#B4A7D6"/>
+  <text x="608" y="572" class="cardTitle">discovery</text>
+  <text x="608" y="586" class="cardBody">SaaS API</text>
+  <rect x="736" y="552" width="128" height="44" rx="6" fill="#FFFFFF" stroke="#B4A7D6"/>
+  <text x="752" y="572" class="cardTitle">unified-access</text>
+  <text x="752" y="586" class="cardBody">SaaS API</text>
+  <text x="592" y="618" class="cardBody">A1: in-cluster DNS + ztunnel</text>
+  <text x="592" y="636" class="cardBody">Revoke push &#8594; fabric-control</text>
+
+  <!-- ambient-plane (brand header) -->
+  <rect x="256" y="636" width="304" height="72" rx="8" fill="#FFFFFF" stroke="#674EA7" stroke-width="1.5"/>
+  <rect x="256" y="636" width="304" height="28" rx="8" fill="#674EA7"/>
+  <rect x="256" y="652" width="304" height="12" fill="#674EA7"/>
+  <text x="272" y="654" class="brandHdr">ambient-plane</text>
+  <text x="272" y="688" class="cardBody">ztunnel DaemonSet &#183; enroll both ns</text>
+
+  <!-- tenant optional -->
+  <rect x="256" y="724" width="624" height="68" rx="6" fill="#FFFFFF" stroke="#D0D5DD" stroke-dasharray="5 4"/>
+  <text x="272" y="748" class="cardBody">tenant-* (optional) &#183; SaaS-hosted pods on Platform OKE</text>
+  <text x="272" y="766" class="cardBody">Hybrid bookkeeping only when apps stay on customer side</text>
+  <text x="272" y="784" class="cardBody">Agent namespace is fabric-edge on the customer cluster &#8212; never on Platform OKE</text>
+
+  <!-- Managed services (right of OKE) -->
+  <g clip-path="url(#clipPg)">
+    <rect x="912" y="392" width="184" height="112" rx="8" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+    <rect x="912" y="392" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/DatabaseSystemDBS.svg" x="912" y="392" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="956" y="412" class="cardTitle">Managed Postgres</text>
+  <text x="928" y="448" class="cardBody">Platform state</text>
+  <text x="928" y="466" class="cardBody">Private endpoint</text>
+  <text x="928" y="484" class="mono">Access API creds</text>
+
+  <g clip-path="url(#clipVault)">
+    <rect x="912" y="520" width="184" height="100" rx="8" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+    <rect x="912" y="520" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/Vault.svg" x="912" y="520" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="956" y="540" class="cardTitle">OCI Vault</text>
+  <text x="928" y="576" class="cardBody">TLS + platform secrets</text>
+  <text x="928" y="594" class="cardBody">Via Access API</text>
+
+  <g clip-path="url(#clipNsg)">
+    <rect x="912" y="636" width="184" height="100" rx="8" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+    <rect x="912" y="636" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/NetworkSecurityGroup.svg" x="912" y="636" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="956" y="656" class="cardTitle">NSG</text>
+  <text x="928" y="692" class="cardBody">NLB &#8594; NodePort</text>
+  <text x="928" y="710" class="cardBody">Restrict mesh backends</text>
+
+  <!-- Customer -->
+  <g clip-path="url(#clipCust)">
+    <rect x="1168" y="140" width="384" height="720" rx="12" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+  </g>
+  <text x="1184" y="168" class="zone">Customer infrastructure</text>
+
+  <g clip-path="url(#clipCf)">
+    <rect x="1184" y="188" width="352" height="64" rx="8" fill="#FFFAEB" stroke="#F79009" stroke-width="1.5"/>
+    <rect x="1184" y="188" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/DomainNameSystemDNS.svg" x="1184" y="188" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="1228" y="208" class="cardTitle">Cloudflare DNS</text>
+  <text x="1200" y="236" class="cardBody">A fabric &#183; connect: CNAME or NS (one)</text>
+
+  <rect x="1184" y="268" width="352" height="400" rx="10" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+  <text x="1200" y="292" class="zone">Customer K8s / k3s</text>
+
+  <rect x="1200" y="308" width="320" height="336" rx="8" fill="#FFFFFF" stroke="#674EA7" stroke-width="1.5"/>
+  <rect x="1200" y="308" width="320" height="28" rx="8" fill="#674EA7"/>
+  <rect x="1200" y="324" width="320" height="12" fill="#674EA7"/>
+  <text x="1216" y="326" class="brandHdr">fabric-edge</text>
+
+  <rect x="1216" y="352" width="288" height="72" rx="6" fill="#FCFCFD" stroke="#D0D5DD"/>
+  <text x="1232" y="376" class="cardTitle">Connect Agent</text>
+  <text x="1232" y="394" class="cardBody">DaemonSet + identity Secret</text>
+  <text x="1232" y="410" class="mono">connect-agent.fabric-edge.svc</text>
+
+  <rect x="1216" y="440" width="288" height="72" rx="6" fill="#FFFFFF" stroke="#D0D5DD"/>
+  <text x="1232" y="464" class="cardTitle">Customer apps</text>
+  <text x="1232" y="482" class="cardBody">privacy, CRM, etc.</text>
+  <text x="1232" y="498" class="cardBody">Dial Platform via Agent URL</text>
+
+  <text x="1216" y="540" class="cardBody">Agent dials fabric.abluva.com:8443</text>
+  <text x="1216" y="560" class="cardBody">Platform apps dial *.connect&#8230;:8444 SNI</text>
+  <text x="1216" y="588" class="cardBody">Hybrid: Agent never on Platform OKE</text>
+  <text x="1216" y="608" class="cardBody">Namespace string &#8800; FABRIC_TENANT_ID</text>
+
+  <rect x="1184" y="688" width="352" height="80" rx="8" fill="#FCFCFD" stroke="#D0D5DD"/>
+  <text x="1200" y="716" class="cardTitle">Shared responsibility</text>
+  <text x="1200" y="736" class="cardBody">Platform: Gateway, CP, DNS, Ambient</text>
+  <text x="1200" y="754" class="cardBody">Customer: Agent, local apps, egress</text>
+
+  <!-- Connectors: only in the 24px gutter between public (ends 328) and private (starts 352) -->
+  <path d="M800 124 V134" fill="none" stroke="#667085" stroke-width="1.5" marker-end="url(#arrowGray)"/>
+
+  <!-- Shared drop from Mesh NLB center, then branch in gutter -->
+  <path d="M832 312 V340" fill="none" stroke="#674EA7" stroke-width="1.5"/>
+  <path d="M832 340 H408 V424" fill="none" stroke="#674EA7" stroke-width="1.5" marker-end="url(#arrowBrand)"/>
+  <rect x="456" y="330" width="100" height="18" rx="3" fill="#FFFFFF" stroke="#B4A7D6"/>
+  <text x="464" y="343" class="pathLbl">:8443 / :8444</text>
+
+  <path d="M832 340 H1160 V360" fill="none" stroke="#674EA7" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowBrand)"/>
+  <rect x="900" y="330" width="88" height="18" rx="3" fill="#FFFFFF" stroke="#B4A7D6"/>
+  <text x="908" y="343" class="pathLbl">Agent tunnel</text>
+
+  <text x="48" y="884" class="footer">SaaS ns = 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c &#183; connect DNS is external (not a subnet box) &#183; Icons bordered (no fill)</text>
+</svg>

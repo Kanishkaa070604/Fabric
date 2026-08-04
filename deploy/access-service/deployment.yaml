@@ -1,0 +1,90 @@
+# Unified Access Service — deployed in the tenant namespace on Platform (OKE).
+# Provides credential broker (control#database, secrets-manager) for the Control Plane.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: access-service
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: access-service
+  template:
+    metadata:
+      labels:
+        app: access-service
+    spec:
+      imagePullSecrets:
+        - name: ocir-secret
+      containers:
+        - name: access-service
+          image: phx.ocir.io/axsfgj15p1je/unified-access-service:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: DISCOVERY_URL
+              value: "http://infra-api:5001/api/v1/control/discovery"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: access-service
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  selector:
+    app: access-service
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-access-service
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  podSelector:
+    matchLabels:
+      app: access-service
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow Gateway (fabric-control namespace) to reach access-service
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fabric-control
+          podSelector:
+            matchLabels:
+              app: mesh-gateway
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Allow pods within the same namespace (intra-namespace)
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 3000

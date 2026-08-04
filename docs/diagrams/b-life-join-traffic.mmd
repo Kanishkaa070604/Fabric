@@ -1,0 +1,59 @@
+sequenceDiagram
+  %% B-LIFE — Join & traffic lifecycle (aligned to Agent main.go + Gateway handler)
+  %% enroll → PoP → tunnel (often PendingApproval) → approve → registration → StreamOpen
+  autonumber
+  actor Admin as Admin / UI
+  participant CP as Control Plane (SaaS ns)
+  participant Agent as Connect Agent (fabric-edge)
+  participant NLB as Fabric NLB fabric.abluva.com
+  participant GW as Gateway + Ghostunnel (fabric-control)
+  participant AppC as Customer app
+  participant AppP as Platform app (discovery)
+
+  Note over Admin,CP: Day-1 tenant credentials
+  Admin->>CP: ensure tenant + bootstrap-token
+  Admin->>Agent: install DaemonSet (CA + bootstrap Secret)
+
+  Note over Agent,CP: Enroll then PoP (before tunnel dial)
+  Agent->>CP: POST /v1/agents/enroll (bootstrap + CSR)
+  CP-->>Agent: leaf cert + agent_id
+  Agent->>CP: POST /v1/agents/:id/api-token/current (leaf PoP)
+  CP-->>Agent: bearer (reuse / mint)
+
+  Note over Agent,GW: Tunnel often up while still PendingApproval
+  Agent->>NLB: mTLS dial fabric.abluva.com:8443
+  NLB->>GW: TCP to Ghostunnel to yamux
+  Note right of Agent: state = PendingApproval<br/>tunnel_state may be up_pending_approval
+
+  Admin->>CP: POST /v1/agents/:id/approve
+  CP-->>Agent: approved (watch / reconcile)
+  Note right of Agent: Connecting to Connected<br/>when tunnel already up
+
+  Note over Admin,CP: Registration required before StreamOpen
+  Admin->>CP: POST /v1/registrations
+  CP-->>Admin: provision to Active (or Failed)
+  Note right of CP: DNS reconciler emits inbound name<br/>while registration Active
+
+  Note over AppC,GW: Outbound stream (Customer to Platform)
+  AppC->>Agent: dial connect-agent.fabric-edge.svc:9443
+  Agent->>GW: StreamOpen (tenant_id, registration_id)
+  GW->>CP: FetchAuthzContext
+  alt denied
+    Note right of GW: pending / revoke / suspend / quota concurrent → UNAUTHORIZED<br/>reg missing → NOT_FOUND<br/>no eligible agent / dial fail → DESTINATION_UNAVAILABLE<br/>CP lookup fail / rate → RETRY_LATER
+    GW-->>Agent: wire outcome above
+  else accepted
+    GW->>AppP: dial registration host/port via adapter
+    GW-->>Agent: StreamOpenResult ACCEPTED
+    AppC-->>AppP: bytes relayed on yamux stream
+  end
+
+  Note over AppP,Agent: Inbound stream (Platform to Customer) SNI
+  AppP->>NLB: TLS reg-or-slug.tenant_id.connect.abluva.com:8444
+  NLB->>GW: shared inbound VIP (same NLB as :8443)
+  GW->>GW: SNI maps tenant_id + registration_id + authz
+  GW->>Agent: AgentDial on existing tunnel
+  Agent->>AppC: dial destination host on registration
+  AppP-->>AppC: bytes relayed
+
+  Note over Admin,GW: Fail-closed reminders
+  Note right of GW: CP down - new StreamOpen RETRY_LATER<br/>PendingApproval - StreamOpen UNAUTHORIZED<br/>Leave Active - DNS name removed

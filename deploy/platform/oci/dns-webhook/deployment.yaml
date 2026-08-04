@@ -1,0 +1,89 @@
+# OCI DNS webhook receiver — runs in the Platform cluster alongside the
+# control-plane. Receives DNS upsert/delete POSTs from the CP reconciler
+# and translates them into OCI DNS Zone API calls.
+#
+# Prerequisites:
+#   1. OCI DNS Zone created (public or private, depending on whether
+#      Platform→Customer inbound traffic traverses public DNS or VPN).
+#   2. OKE worker nodes' instance principal (or a dedicated dynamic group)
+#      granted: Allow dynamic-group <dg> to manage dns-records in compartment <c>
+#   3. Secret "fabric-dns-webhook-token" with key "token" — shared with CP's
+#      FABRIC_DNS_WEBHOOK_TOKEN env.
+#
+# Wire the CP to call this service:
+#   FABRIC_DNS_PROVIDER=webhook
+#   FABRIC_DNS_WEBHOOK_URL=http://fabric-dns-webhook.3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c.svc:8090
+#   FABRIC_DNS_WEBHOOK_TOKEN=<from Secret below>
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fabric-dns-webhook-token
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+type: Opaque
+stringData:
+  token: "REPLACE_WITH_RANDOM_SECRET"   # openssl rand -hex 24
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fabric-dns-webhook
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+  labels:
+    app: fabric-dns-webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fabric-dns-webhook
+  template:
+    metadata:
+      labels:
+        app: fabric-dns-webhook
+    spec:
+      serviceAccountName: default
+      containers:
+        - name: dns-webhook
+          image: ghcr.io/abluva/fabric-dns-webhook-oci:latest  # or your registry
+          ports:
+            - containerPort: 8090
+          env:
+            - name: OCI_DNS_ZONE_ID
+              value: "REPLACE_WITH_ZONE_OCID"
+            - name: OCI_DNS_COMPARTMENT_ID
+              value: "REPLACE_WITH_COMPARTMENT_OCID"
+            - name: OCI_AUTH_MODE
+              value: "instance_principal"
+            - name: OCI_DNS_RECORD_TTL
+              value: "60"
+            - name: WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-dns-webhook-token
+                  key: token
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            periodSeconds: 30
+          resources:
+            requests: { cpu: "25m", memory: "64Mi" }
+            limits: { cpu: "100m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fabric-dns-webhook
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  selector:
+    app: fabric-dns-webhook
+  ports:
+    - port: 8090
+      targetPort: 8090
+      protocol: TCP

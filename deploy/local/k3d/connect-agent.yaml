@@ -1,0 +1,191 @@
+# Tenant-side Connect Agent on k3d, dialing platform on the Docker host.
+# host.k3d.internal is injected by k3d on every OS (Mac Docker Desktop and
+# Linux/OCI Docker Engine). Prefer it over host.docker.internal for Agent→host
+# dials so the same manifest works without Docker Desktop extras.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fabric-edge
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: connect-agent
+  namespace: fabric-edge
+---
+# RBAC for the opt-in in-cluster Service reconciler (connect-agent/internal/
+# k8ssvc, watch/service.go) -- see daemonset.yaml's header comment for the
+# full rationale ("no Kubernetes Service routing exists for more than one
+# registration per tenant"). Unused by the smoke path below (FABRIC_SMOKE_*
+# bypasses watch.Manager entirely), but present so this manifest can also
+# be used to exercise the real reconciler end to end against k3d's API
+# server -- unset FABRIC_SMOKE_REGISTRATION_ID's secret key and set
+# FABRIC_K8S_SERVICE_MANAGE_ENABLED=1 below to do that.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: connect-agent-service-manager
+  namespace: fabric-edge
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: connect-agent-service-manager
+  namespace: fabric-edge
+subjects:
+  - kind: ServiceAccount
+    name: connect-agent
+    namespace: fabric-edge
+roleRef:
+  kind: Role
+  name: connect-agent-service-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: connect-agent
+  namespace: fabric-edge
+  labels:
+    app: connect-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: connect-agent
+  template:
+    metadata:
+      labels:
+        app: connect-agent
+    spec:
+      serviceAccountName: connect-agent
+      # Smoke only: so CUSTOMER_* dials to host.docker.internal reach the
+      # host echo (k3d CoreDNS may not resolve that name). Replaced by
+      # smoke-k3d-tenant.sh with the real host-gateway IP.
+      hostAliases:
+        - ip: REPLACE_HOST_GW_IP
+          hostnames:
+            - host.docker.internal
+            - host.k3d.internal
+      containers:
+        - name: connect-agent
+          image: connect-agent:local
+          imagePullPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: FABRIC_GATEWAY_ADDRESS
+              value: "host.k3d.internal:18443"
+            - name: FABRIC_TLS_SERVER_NAME
+              value: "fabric-gateway"
+            - name: FABRIC_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-edge-bootstrap
+                  key: tenant_id
+            - name: FABRIC_CONTROL_PLANE_URL
+              value: "http://host.k3d.internal:18080"
+            - name: FABRIC_CONTROL_PLANE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-edge-bootstrap
+                  key: control_plane_token
+            - name: FABRIC_BOOTSTRAP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-edge-bootstrap
+                  key: bootstrap_token
+            # L3-AGT-02: leaf written under emptyDir; Secret is CA-only.
+            - name: FABRIC_AGENT_CERT_DIR
+              value: /var/run/abluva/tls
+            - name: FABRIC_AGENT_CA_FILE
+              value: /etc/connect-agent/tls/ca.crt
+            - name: FABRIC_AGENT_ID_PATH
+              value: /var/run/abluva/agent-id
+            - name: FABRIC_SMOKE_REGISTRATION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-edge-bootstrap
+                  key: registration_id
+                  optional: true
+            - name: FABRIC_SMOKE_LISTEN
+              value: "0.0.0.0:9443"
+            - name: FABRIC_SMOKE_CONNECTIVITY_TYPE
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-edge-bootstrap
+                  key: connectivity_type
+                  optional: true
+            - name: FABRIC_LOG_LEVEL
+              value: info
+            # Opt-in Service reconciler -- off by default even here, since
+            # the smoke path above (FABRIC_SMOKE_REGISTRATION_ID) bypasses
+            # watch.Manager entirely and this would just be inert. Flip to
+            # "1" (and drop the FABRIC_SMOKE_* secret keys above) to exercise
+            # it for real against this k3d cluster's own API server.
+            - name: FABRIC_K8S_SERVICE_MANAGE_ENABLED
+              value: ""
+            - name: NO_PROXY
+              value: "host.k3d.internal,host.docker.internal,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.svc.cluster.local"
+            - name: no_proxy
+              value: "host.k3d.internal,host.docker.internal,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.svc.cluster.local"
+          ports:
+            - name: svc-conn
+              containerPort: 9443
+          volumeMounts:
+            - name: agent-trust
+              mountPath: /etc/connect-agent/tls
+              readOnly: true
+            - name: run
+              mountPath: /var/run/abluva
+          readinessProbe:
+            exec:
+              command: ["/connect-agent", "ready"]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["/connect-agent", "health"]
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+      volumes:
+        - name: agent-trust
+          secret:
+            secretName: connect-agent-tls
+        # Persist identity across smoke rollout restarts (registration_id
+        # repoints). Matches production D2-A hostPath. Agent-2 stays emptyDir
+        # so day-1c can still prove wipe → re-enroll.
+        - name: run
+          hostPath:
+            path: /var/lib/fabric-smoke/connect-agent
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: connect-agent
+  namespace: fabric-edge
+spec:
+  selector:
+    app: connect-agent
+  # See daemonset.yaml's Service for the full rationale ("internalTrafficPolicy:
+  # Local is missing" fix) -- harmless no-op here today since this manifest
+  # runs a single-replica Deployment (only one possible backend either way),
+  # but kept for consistency and so copying this file as a DaemonSet
+  # starting point doesn't silently drop it.
+  internalTrafficPolicy: Local
+  ports:
+    - name: svc-conn
+      port: 9443
+      targetPort: 9443

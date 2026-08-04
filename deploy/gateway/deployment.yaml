@@ -1,0 +1,122 @@
+# Platform Gateway — Ghostunnel (mTLS) + dispatch (unix + PROXY)
+# Customer JWKS fetch (OIDC) may need HTTPS_PROXY on the *Gateway* pod only,
+# with NO_PROXY covering in-cluster Fabric and Access API.
+# Namespace fabric-control must be Ambient-enrolled (istio.io/dataplane-mode=ambient)
+# so A2 (after authz) and A3/B4 (platform dial into inbound) see ztunnel.
+# See deploy/platform/ambient/ and Operational-Runbook Step 7.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fabric-gateway
+  namespace: fabric-control
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fabric-gateway
+  template:
+    metadata:
+      labels:
+        app: fabric-gateway
+        # No sidecar injection — Ambient uses node ztunnel, not per-pod sidecars.
+        sidecar.istio.io/inject: "false"
+    spec:
+      # Keep ≥ FABRIC_SHUTDOWN_GRACE + Ghostunnel --shutdown-timeout (L3-GW-07).
+      terminationGracePeriodSeconds: 45
+      imagePullSecrets:
+        - name: ocir-secret
+      containers:
+        - name: ghostunnel
+          # Ghostunnel ≥ v1.10.0 required for --proxy-protocol-mode=tls-full
+          # (mutually exclusive with bare --proxy-protocol). Pin a specific tag.
+          image: docker.io/ghostunnel/ghostunnel:v1.11.1-distroless
+          args:
+            - server
+            - --listen=0.0.0.0:8443
+            - --target=unix:/var/run/fabric/gateway.sock
+            - --cert=/etc/fabric/tls/gateway-cert.pem
+            - --key=/etc/fabric/tls/gateway-key.pem
+            - --cacert=/etc/fabric/tls/intermediate-ca.pem
+            - --allow-all
+            # Do NOT also set --proxy-protocol (mutually exclusive with mode flag).
+            - --proxy-protocol-mode=tls-full
+            - --status=http://127.0.0.1:6060
+            - --timed-reload=300s
+            # Align with Gateway FABRIC_SHUTDOWN_GRACE (default 25s); default Ghostunnel
+            # 5m would outlive the sibling process and risk SIGKILL mid-drain (L3-GW-07).
+            - --shutdown-timeout=25s
+          ports:
+            - name: mtls
+              containerPort: 8443
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/fabric/tls
+              readOnly: true
+            - name: sock
+              mountPath: /var/run/fabric
+        - name: gateway
+          image: phx.ocir.io/axsfgj15p1je/mesh-gateway:v4
+          imagePullPolicy: Always
+          env:
+            - name: FABRIC_GATEWAY_UNIX_SOCKET
+              value: /var/run/fabric/gateway.sock
+            - name: FABRIC_CONTROL_PLANE_URL
+              value: http://fabric-control-plane.3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c.svc:8080
+            - name: FABRIC_SHUTDOWN_GRACE
+              value: "25s"
+            # D7-A: pin registration/billing drain grace (code default was 3m).
+            - name: FABRIC_REGISTRATION_DRAIN_GRACE
+              value: "3m"
+            # CP revoke push target (L3-OPS-01): in-cluster Service fabric-gateway:9090
+            - name: FABRIC_REVOKE_PUSH_LISTEN
+              value: "0.0.0.0:9090"
+            - name: FABRIC_LOG_LEVEL
+              value: info
+            - name: ABLV_ACCESS_URL
+              value: http://172.16.1.101:3000/v1/access
+            - name: ABLV_PLATFORM_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-platform-ids
+                  key: tenant_id
+            - name: ABLV_PLATFORM_ENVIRONMENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-platform-ids
+                  key: environment_id
+            # Only if platform egress to customer OIDC JWKS requires corporate proxy:
+            # - name: HTTPS_PROXY
+            #   value: http://proxy.corp:3128
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.svc.cluster.local,172.16.1.101"
+            - name: no_proxy
+              value: "localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.svc.cluster.local,172.16.1.101"
+          volumeMounts:
+            - name: sock
+              mountPath: /var/run/fabric
+      volumes:
+        - name: tls
+          secret:
+            secretName: fabric-gateway-tls
+        - name: sock
+          emptyDir: {}
+---
+# In-cluster Service for CP revoke push / admin (L3-OPS-01). Public ingress is
+# a separate OCI NLB (TCP passthrough, PROXY off) — do not point FABRIC_GATEWAY_PUSH_*
+# at that NLB.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fabric-gateway
+  namespace: fabric-control
+spec:
+  selector:
+    app: fabric-gateway
+  ports:
+    - name: mtls
+      port: 8443
+      targetPort: mtls
+    # Internal HTTP revoke push (Gateway listens on FABRIC_INTERNAL_HTTP or default).
+    - name: internal
+      port: 9090
+      targetPort: 9090

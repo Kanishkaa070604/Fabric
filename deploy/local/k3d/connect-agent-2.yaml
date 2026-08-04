@@ -1,0 +1,96 @@
+# Second Connect Agent: tunnel + inbound only (no smoke StreamOpen listener).
+# Used to prove Gateway CONNECT_AGENT selection picks the reachable agent.
+# L3-AGT-02: shares the same CA-only Secret + bootstrap window as agent-1;
+# each pod mints its own leaf via CSR-in-enroll into emptyDir.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: connect-agent-2
+  namespace: fabric-edge
+  labels:
+    app: connect-agent-2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: connect-agent-2
+  template:
+    metadata:
+      labels:
+        app: connect-agent-2
+    spec:
+      serviceAccountName: connect-agent
+      hostAliases:
+        - ip: REPLACE_HOST_GW_IP
+          hostnames:
+            - host.docker.internal
+            - host.k3d.internal
+      containers:
+        - name: connect-agent
+          image: connect-agent:local
+          imagePullPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: FABRIC_GATEWAY_ADDRESS
+              value: "host.k3d.internal:18443"
+            - name: FABRIC_TLS_SERVER_NAME
+              value: "fabric-gateway"
+            - name: FABRIC_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-edge-bootstrap
+                  key: tenant_id
+            - name: FABRIC_CONTROL_PLANE_URL
+              value: "http://host.k3d.internal:18080"
+            - name: FABRIC_CONTROL_PLANE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-edge-bootstrap
+                  key: control_plane_token
+            - name: FABRIC_BOOTSTRAP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-edge-bootstrap
+                  key: bootstrap_token
+            - name: FABRIC_AGENT_CERT_DIR
+              value: /var/run/abluva/tls
+            - name: FABRIC_AGENT_CA_FILE
+              value: /etc/connect-agent/tls/ca.crt
+            - name: FABRIC_AGENT_ID_PATH
+              value: /var/run/abluva/agent-id
+            - name: FABRIC_LOG_LEVEL
+              value: info
+            - name: NO_PROXY
+              value: "host.k3d.internal,host.docker.internal,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.svc.cluster.local"
+            - name: no_proxy
+              value: "host.k3d.internal,host.docker.internal,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.svc.cluster.local"
+          volumeMounts:
+            - name: agent-trust
+              mountPath: /etc/connect-agent/tls
+              readOnly: true
+            - name: run
+              mountPath: /var/run/abluva
+          readinessProbe:
+            exec:
+              command: ["/connect-agent", "ready"]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["/connect-agent", "health"]
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+      volumes:
+        - name: agent-trust
+          secret:
+            secretName: connect-agent-tls
+        - name: run
+          emptyDir: {}

@@ -1,0 +1,36 @@
+# Example NetworkPolicy: only labeled consumers may dial Connect Agent listeners.
+# Apply as part of install bundle (Architecture-Resolutions item 1).
+#
+# Port range note: the Agent opens one StreamOpen listener per Active
+# registration, starting at FABRIC_LISTEN_BASE_PORT (default 9443, see
+# connect-agent.env.example) and using the lowest free port above it for
+# each additional registration (connect-agent/internal/watch/watch.go
+# syncListeners) -- it is NOT a fixed two-port pair. The `ports:` list below
+# is a starting range; widen `endPort` (Kubernetes >=1.25) or add explicit
+# `port:` entries to cover FABRIC_LISTEN_BASE_PORT..FABRIC_LISTEN_BASE_PORT+N-1
+# for however many registrations this tenant actually has (same range this
+# repo's ECS security-group example already parameterizes -- see
+# ../connect-agent/ecs/README.md).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: connect-agent-ingress
+  namespace: TENANT_NAMESPACE
+spec:
+  podSelector:
+    matchLabels:
+      app: connect-agent
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              abluva.io/connect-consumer: "true"
+      ports:
+        # FABRIC_LISTEN_BASE_PORT (9443) .. FABRIC_LISTEN_BASE_PORT+15 (9458):
+        # covers up to 16 concurrent registrations out of the box. Raise
+        # endPort (or add this tenant's real registration count) if more.
+        - protocol: TCP
+          port: 9443
+          endPort: 9458

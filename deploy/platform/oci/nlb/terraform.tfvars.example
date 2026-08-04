@@ -1,0 +1,24 @@
+# Fill every field. Blind steps: docs/Operational-Runbook.md Day 0 Step 5b
+# Collect backends after NodePort: ./collect-backend-values.sh
+
+compartment_ocid = "ocid1.compartment.oc1..aaaa..." # Console: Identity → Compartments → OCID
+subnet_ocid      = "ocid1.subnet.oc1..aaaa..."      # Console: Networking → VCN → Subnets → OCID (public/regional)
+
+# From ./collect-backend-values.sh (worker InternalIPs + NodePort for 8443).
+backend_ip_addresses = [
+  "10.0.10.11",
+  "10.0.10.12",
+]
+backend_port  = 32443 # NodePort for Service port 8443 — NOT 8443 unless using hostPort
+listener_port = 8443  # What Agents dial on the VIP
+
+# FQDN Agents put in FABRIC_GATEWAY_ADDRESS (with :8443).
+dns_hostname = "fabric.yourcompany.com"
+
+# Optional: auto-create A record dns_hostname → NLB public VIP in OCI DNS.
+# Console: Networking → DNS Management → Zones → open zone → copy OCID.
+# Leave both empty if DNS is Cloudflare/Route53/corporate — create A record by hand (Runbook Day 0 Step 5b).
+# oci_dns_zone_ocid        = "ocid1.dns-zone.oc1..aaaa..."
+# oci_dns_compartment_ocid = "ocid1.compartment.oc1..aaaa..." # usually same as compartment_ocid
+
+is_private = false # false = public VIP (typical)
