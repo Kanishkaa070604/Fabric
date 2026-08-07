@@ -16,10 +16,12 @@ import {
   type RevokeCause,
   type SuspendCause,
   type TenantConnect,
+  type WorkloadEvidenceStrategy,
   addRevokedFingerprint,
   isAgentStale,
   DEFAULT_CERT_OVERLAP_SECONDS,
   DEFAULT_TOKEN_OVERLAP_SECONDS,
+  evidenceTrustFromTenant,
   filterEligibleAgents,
   slugifyDisplayName,
 } from "./types";
@@ -76,7 +78,7 @@ export class MemoryStore implements FabricStore {
       const now = new Date();
       t = {
         tenant_id: tenantId,
-        auto_approve_agents: false,
+        auto_approve_agents: true,
         max_tunnels: 50,
         max_concurrent_streams: 2000,
         max_stream_open_per_sec: 100,
@@ -86,6 +88,16 @@ export class MemoryStore implements FabricStore {
         revoked_cert_causes: {},
         strict_substrate_binding: false,
         expected_substrate_fingerprint: null,
+        workload_evidence_strategy: "none",
+        workload_evidence_config: {},
+        oidc_enabled: false,
+        oidc_issuer_url: null,
+        oidc_jwks_uri: null,
+        oidc_audience: "abluva-connect",
+        oidc_allowed_algs: ["RS256"],
+        oidc_ca_bundle_pem: null,
+        oidc_last_discovery_ok_at: null,
+        oidc_last_discovery_error: null,
         bootstrap_token_hash: null,
         bootstrap_expires_at: null,
         agent_api_token_hash: null,
@@ -553,6 +565,72 @@ export class MemoryStore implements FabricStore {
     return t;
   }
 
+  async setWorkloadEvidence(
+    tenantId: string,
+    input: {
+      strategy?: WorkloadEvidenceStrategy;
+      oidc_issuer_url?: string | null;
+      oidc_jwks_uri?: string | null;
+      oidc_audience?: string;
+      oidc_allowed_algs?: string[];
+      oidc_ca_bundle_pem?: string | null;
+      oidc_enabled?: boolean;
+      oidc_last_discovery_ok_at?: Date | null;
+      oidc_last_discovery_error?: string | null;
+      workload_evidence_config?: Record<string, unknown>;
+    },
+    actor: string
+  ): Promise<TenantConnect> {
+    const t = await this.ensureTenant(tenantId, actor);
+    if (input.strategy !== undefined) {
+      const allowed: WorkloadEvidenceStrategy[] = [
+        "none",
+        "kubernetes_oidc",
+        // "ecs_task_identity" — not yet implemented in Gateway; accepting
+        // it here would let a tenant arm a strategy that hard-rejects
+        // every stream. Re-add when gateway/internal/evidence has a real
+        // ECS verifier (L3-POC-ECS).
+      ];
+      if (!allowed.includes(input.strategy)) {
+        throw new Error(`workload_evidence_strategy_invalid: ${input.strategy}`);
+      }
+      t.workload_evidence_strategy = input.strategy;
+    }
+    if (input.oidc_issuer_url !== undefined) {
+      t.oidc_issuer_url = input.oidc_issuer_url;
+    }
+    if (input.oidc_jwks_uri !== undefined) {
+      t.oidc_jwks_uri = input.oidc_jwks_uri;
+    }
+    if (input.oidc_audience !== undefined) {
+      t.oidc_audience = input.oidc_audience || "abluva-connect";
+    }
+    if (input.oidc_allowed_algs !== undefined) {
+      t.oidc_allowed_algs =
+        input.oidc_allowed_algs.length > 0
+          ? input.oidc_allowed_algs
+          : ["RS256"];
+    }
+    if (input.oidc_ca_bundle_pem !== undefined) {
+      t.oidc_ca_bundle_pem = input.oidc_ca_bundle_pem;
+    }
+    if (input.oidc_enabled !== undefined) {
+      t.oidc_enabled = input.oidc_enabled;
+    }
+    if (input.oidc_last_discovery_ok_at !== undefined) {
+      t.oidc_last_discovery_ok_at = input.oidc_last_discovery_ok_at;
+    }
+    if (input.oidc_last_discovery_error !== undefined) {
+      t.oidc_last_discovery_error = input.oidc_last_discovery_error;
+    }
+    if (input.workload_evidence_config !== undefined) {
+      t.workload_evidence_config = input.workload_evidence_config;
+    }
+    t.updated_at = new Date();
+    t.updated_by = actor;
+    return t;
+  }
+
   async degradeStaleAgents(staleAfterMs: number): Promise<number> {
     if (staleAfterMs <= 0) return 0;
     const cutoff = new Date(Date.now() - staleAfterMs);
@@ -962,6 +1040,7 @@ export class MemoryStore implements FabricStore {
       agent_approved,
       agent_state,
       agent_id,
+      evidence_trust: evidenceTrustFromTenant(t),
     };
   }
 

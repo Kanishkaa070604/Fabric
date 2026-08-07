@@ -13,7 +13,7 @@
 
 CREATE TABLE IF NOT EXISTS ablv_tenant_connect (
   tenant_id UUID PRIMARY KEY REFERENCES ablv_tenants(tenant_id),
-  auto_approve_agents BOOLEAN NOT NULL DEFAULT FALSE,
+  auto_approve_agents BOOLEAN NOT NULL DEFAULT TRUE,
   max_tunnels INTEGER NOT NULL DEFAULT 50,
   max_concurrent_streams INTEGER NOT NULL DEFAULT 2000,
   max_stream_open_per_sec INTEGER NOT NULL DEFAULT 100,
@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS ablv_tenant_connect (
   oidc_ca_bundle_pem TEXT,
   oidc_last_discovery_ok_at TIMESTAMPTZ,
   oidc_last_discovery_error TEXT,
+  -- L3-EVID-01: pluggable workload-evidence strategy (Part 4a)
+  workload_evidence_strategy TEXT NOT NULL DEFAULT 'none',
+  workload_evidence_config JSONB NOT NULL DEFAULT '{}'::JSONB,
   bootstrap_token_hash BYTEA,
   bootstrap_expires_at TIMESTAMPTZ,
   -- L3-CTL-01a / G-CRED-1: scoped Agent API bearer (hash + prior overlap)
@@ -49,6 +52,9 @@ CREATE TABLE IF NOT EXISTS ablv_tenant_connect (
   ),
   CONSTRAINT ablv_tenant_connect_suspended_cause_chk CHECK (
     suspended_cause IS NULL OR suspended_cause IN ('billing', 'security')
+  ),
+  CONSTRAINT ablv_tenant_connect_evidence_strategy_chk CHECK (
+    workload_evidence_strategy IN ('none', 'kubernetes_oidc', 'ecs_task_identity')
   )
 );
 

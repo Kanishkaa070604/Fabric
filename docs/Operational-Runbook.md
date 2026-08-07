@@ -65,7 +65,8 @@ only on the Platform cluster, never in any Customer Environment.**
 | Phase | Owner | How | Source of truth in this repo |
 |---|---|---|---|
 | **Platform Day 0** | Platform ops | Scripts / kubectl / manifests only | This Runbook → [Installing the platform (Day 0)](#installing-the-platform-day-0) |
-| **Tenant Day 1** | Tenant admin (+ Platform assist) | **UI** for control-plane actions (ensure, quotas, bootstrap, approve, first registration); **scripts/manifests** for Agent install on the customer cluster | Runbook [Day 1](#onboarding-a-customer-agent-day-1) (API + table checks in each step) + `Tenant-App-UI-Checklist.md` §1 + `deploy/connect-agent/` |
+| **Pure SaaS tenant** (no customer connector) | Platform ops (+ optional product tenancy) | **Skip Agent Day 1.** Ambient only if new Platform namespaces | [Pure SaaS tenants](#pure-saas-tenants-no-connect-agent) |
+| **Tenant Day 1** (customer Agent) | Tenant admin (+ Platform assist) | **UI** for control-plane actions (ensure, quotas, bootstrap, approve, first registration); **scripts/manifests** for Agent install on the customer cluster | Runbook [Day 1](#onboarding-a-customer-agent-day-1) (API + table checks in each step) + `Tenant-App-UI-Checklist.md` §1 + `deploy/connect-agent/` |
 | **Day‑N** | Tenant admin | **UI first** (retry Failed, edit regs, retire, revoke, suspend). Curl remains the ops fallback and the smoke harness | Runbook → [Day to day](#day-to-day-registrations-and-pathways) + `Tenant-App-UI-Checklist.md` §§2–5 |
 
 End-to-end proof matrix (k3d, Ambient, jobs, AGT-02): `Validation-Plan.md`.
@@ -73,6 +74,83 @@ End-to-end proof matrix (k3d, Ambient, jobs, AGT-02): `Validation-Plan.md`.
 **There is no tenant-app CronJob** for Failed registrations, DNS, or heartbeats.
 Those are either on-demand UI/API actions or in-process Platform/Agent
 tickers — see [Background jobs](#background-jobs-what-runs-without-a-human).
+
+---
+
+## Pure SaaS tenants (no Connect Agent)
+
+Use this when a tenant only uses **Platform-hosted** apps and traffic stays
+on the SaaS Kubernetes cluster (**pathway A1**, optionally **B1** for
+Platform resources). There is **no** customer cluster, **no** Connect Agent,
+and **no** Fabric Gateway tunnel for that tenant’s app traffic.
+
+If the tenant later needs customer↔Platform connectivity, stop using this
+section and run [Onboarding a customer Agent (Day 1)](#onboarding-a-customer-agent-day-1).
+
+### What you do **not** do
+
+| Fabric Day‑1 / Day‑N step | Pure SaaS? |
+|---|---|
+| Bootstrap token | **Skip** |
+| Connect Agent install (DaemonSet / k3s / ECS) | **Skip** |
+| Agent leaf cert / enroll / approve / auto-approve | **Skip** |
+| `PLATFORM_*` / `CUSTOMER_*` Fabric registrations for Agent dial paths | **Skip** |
+| Inbound `connect.*` DNS / Ghostunnel for this tenant | **Skip** |
+| Fabric workload-evidence / OIDC for Agent StreamOpen | **Skip** |
+
+Apps dial each other with **normal in-cluster DNS**
+(`svc.cluster.local`). Ambient/ztunnel provides L4 mTLS on enrolled
+Platform namespaces — not Fabric registrations.
+
+### What Platform ops **must** have done (once)
+
+1. **Platform Day 0** complete, including Ambient install
+   ([Step 7](#step-7--install-platform-ambient-ztunnel--optional-waypoint)).
+2. Shared SaaS app namespaces already enrolled (typical Day 0):
+
+```bash
+./deploy/platform/ambient/enroll-namespaces.sh fabric-control <saas-ns>
+kubectl get ns -l istio.io/dataplane-mode=ambient
+```
+
+### Optional: `POST /v1/tenants/ensure`
+
+Create a Fabric tenant profile only if the **product** wants the row for
+billing / tenancy metadata. **A1 traffic does not require it.** Quotas,
+bootstrap, Agents, and registrations stay unused until an Agent is onboarded.
+
+### If this tenant gets a **separate namespace** on Platform K8s
+
+Shipped default is still **one shared SaaS ns** + `fabric-control` (see
+[Customer namespaces](#customer-namespaces-does-not-complicate-platform-oci)).
+If product isolation needs `tenant-<id>` (or similar) **on OKE**:
+
+| Step | Owner | Action |
+|---|---|---|
+| 1 | Platform ops | `kubectl create namespace <tenant-ns>` (and deploy that tenant’s SaaS workloads there) |
+| 2 | Platform ops | **Ambient-enroll the new namespace** (required for A1 mTLS in that ns): |
+
+```bash
+./deploy/platform/ambient/enroll-namespaces.sh <tenant-ns>
+# Expect: namespace labeled istio.io/dataplane-mode=ambient
+kubectl get ns <tenant-ns> --show-labels | grep dataplane-mode
+```
+
+| 3 | Platform ops (optional) | NetworkPolicy / Istio AuthorizationPolicy so this ns cannot reach other tenants’ ns |
+| 4 | Platform ops (optional) | Waypoint **only** if that ns needs L7 HTTP/gRPC policy — never for DB-only namespaces |
+
+Still **no** Agent, bootstrap, leaf, approve, or Fabric registration for
+pure A1 inside that namespace.
+
+**Confirm Ambient path:** pods in `<tenant-ns>` Ready; ztunnel DS Ready;
+`verify-ambient.sh` OK; app dials in-cluster Service DNS succeed. Failures
+here are **Ambient / NetworkPolicy**, not Agent or Gateway.
+
+### UI checklist implication
+
+Tenant Day‑1 Agent wizard (bootstrap → install → registrations) must be
+**skippable / hidden** for “Platform-only / no customer connector” tenants.
+See `Tenant-App-UI-Checklist.md`.
 
 ---
 
@@ -128,14 +206,14 @@ by refusing to let the tunnel come up at all.
 | Agent shows `Connected`, but applications still fail | Approval and the tunnel are both fine — look at the registration (`Failed` → retry), the destination, or reachability instead | Use [Troubleshooting](#troubleshooting) (esp. [Registration is Failed](#registration-is-failed)) |
 
 **Who actually approves an Agent:**
-- Normally, the tenant's own administrator, through the product UI (or
-  directly: `POST /v1/agents/:id/approve`).
-- A Platform operator can use the same approval endpoint as a break-glass
-  action — always record who did it via the `X-ABLV-Actor` header.
-- A tenant can opt into auto-approve (**default off**) with
-  `POST /v1/tenants/:id/auto-approve` `{ "enabled": true }` — labs/dev only.
-  That skips `PendingApproval` so the Agent goes straight to `Connecting`
-  then `Connected` when its tunnel is up. Production keeps human approve.
+- **Default (prod):** `auto_approve_agents=true` on new tenants — enroll skips
+  `PendingApproval` and goes to `Connecting` → `Connected` when the tunnel is
+  up. Node scale-out does **not** require a human per Agent.
+- **High-security / locked fleets:** turn auto-approve **off** with
+  `POST /v1/tenants/:id/auto-approve` `{ "enabled": false }`. Then each enroll
+  waits on tenant admin (UI or `POST /v1/agents/:id/approve`). Platform can
+  break-glass the same endpoint (`X-ABLV-Actor`).
+- Manual Approve remains available whenever an Agent is `PendingApproval`.
 
 Data traffic is only ever allowed when an Agent's state is **`Connected`**
 or **`Degraded`** — nothing else.
@@ -1076,6 +1154,11 @@ workload in this whole system is allowed to run.
 own dial into Fabric (A2) nor a Platform service's dial toward the
 Gateway (A3/B4) actually passes through ztunnel.
 
+Later, if you add **per-tenant namespaces on Platform** for pure SaaS
+isolation, enroll each new ns the same way — see
+[Pure SaaS tenants](#pure-saas-tenants-no-connect-agent). That is still not
+an Agent install.
+
 **7c — apply waypoints, only where HTTP/gRPC-level policy is actually wanted:**
 
 ```bash
@@ -1221,6 +1304,15 @@ See Step 3 below for kubectl detail. Mapping for the Secret:
 
 ## Onboarding a customer Agent (Day 1)
 
+**Not for pure SaaS.** If this tenant has no customer connector and only
+Platform A1/B1 traffic, use
+[Pure SaaS tenants](#pure-saas-tenants-no-connect-agent) instead — skip this
+entire section.
+
+This section is the guided path for tenants that install a **Connect Agent**
+on customer infrastructure (or a Platform-hosted Agent appliance talking
+across the Fabric Gateway).
+
 Walk these steps in order. After each action: confirm the **API**, then the
 **table** (when `FABRIC_STORE=postgres`). API is enough for routine ops; SQL
 catches store drift. **Never** hand-`UPDATE` Agent `state` to force
@@ -1279,7 +1371,8 @@ SELECT tenant_id, suspended, auto_approve_agents,
        agent_api_token_hash IS NOT NULL AS api_token_hash_set
   FROM ablv_tenant_connect
  WHERE tenant_id = :'tenant_id';
--- Expect: 1 row; suspended=false; auto_approve_agents=false in prod;
+-- Expect: 1 row; suspended=false; auto_approve_agents=true by default;
+--   set false only for high-security manual-approve fleets.
 --         quotas > 0; bootstrap_hash_set=false; api_token_hash_set=false.
 ```
 
@@ -1401,8 +1494,9 @@ SELECT id, state, substrate, cert_fingerprint_sha256,
   FROM ablv_agents
  WHERE tenant_id = :'tenant_id' AND deleted_at IS NULL
  ORDER BY created_at DESC;
--- Expect ≥1 row: state='PendingApproval' (or 'Connecting' if auto_approve — lab only);
---   fingerprint NOT NULL; enrollment_approved_at IS NULL; deleted_at IS NULL.
+-- Expect ≥1 row: state='Connecting' or 'Connected' (default auto_approve);
+--   or 'PendingApproval' if auto_approve was turned off;
+--   fingerprint NOT NULL; deleted_at IS NULL.
 ```
 
 **Confirm (table) — tunnel + PoP:**
@@ -1462,6 +1556,12 @@ SELECT id, state, tunnel_state,
 ```
 
 ### Step 5 — Create the first registration (then dial)
+
+**Production Day‑1:** seed fixed SaaS destinations from the **Platform service
+catalog** (Tenant UI checklist §1 row 8a) — Day‑1 script / UI BFF loops
+selected catalog rows → `POST /v1/registrations` with
+`destination_kind: PLATFORM_SERVICE` (same host/port for every tenant; new
+row per tenant). Lab smoke below creates a single customer resource instead.
 
 ```bash
 curl -sS -H "Content-Type: application/json" -H "X-ABLV-Actor: tenant-admin" \
@@ -1808,6 +1908,10 @@ string. Creating a customer namespace per tenant is normal packaging and
 does **not** require a matching namespace on OKE. Do not create per-tenant
 namespaces on Platform for Fabric components unless you have a separate
 product reason — the shipped path is `fabric-control` (network) + SaaS ns (CP + apps).
+
+If product **does** create per-tenant namespaces on OKE for pure SaaS app
+isolation, that is **not** a Fabric Agent install: Ambient-enroll each new
+ns as in [Pure SaaS tenants](#pure-saas-tenants-no-connect-agent).
 
 ---
 
@@ -2170,7 +2274,7 @@ Part 10).
 
 | Pathway | Hop chain | Notes |
 |---|---|---|
-| A1 — Platform → Platform service | Platform Service → ztunnel → (optional waypoint) → ztunnel → Platform Service | No Gateway, no Agent — entirely Ambient |
+| A1 — Platform → Platform service | Platform Service → ztunnel → (optional waypoint) → ztunnel → Platform Service | No Gateway, no Agent — entirely Ambient. **Pure SaaS:** [Pure SaaS tenants](#pure-saas-tenants-no-connect-agent) |
 | A2 — Customer → Platform service | Customer Service → Agent → tunnel → Gateway → ztunnel → (optional waypoint) → Platform Service | Direct dial after authorization; Agent retries only at the transport level, waypoint (if present) retries HTTP/gRPC |
 | A3 — Platform → Customer service | Platform Service → (optional waypoint) → ztunnel → Gateway → tunnel → Agent → Customer Service | Reaches the right tenant via Spec §8.3 DNS/SNI addressing (ops label G-A3-1); waypoint retries only apply up to the Gateway |
 | A4 — Customer → Customer service | Customer Service → Agent → tunnel → Gateway → tunnel → Agent → Customer Service | Always hairpins through the Gateway; the origin Agent listens locally for this registration |
@@ -2521,6 +2625,8 @@ certificate, deleting a registration — additionally require
 | POST | `/v1/tenants/:id/agent-api-token` | Writer: issue Agent API bearer (no longer needed for Day‑1; Agent self-derives after enroll) |
 | POST | `/v1/tenants/:id/agent-api-token/revoke` | Writer: invalidate Agent API bearer(s) |
 | POST | `/v1/tenants/:id/quotas` | `{ "max_tunnels", "max_concurrent_streams", "max_stream_open_per_sec" }` |
+| GET | `/v1/tenants/:id/workload-evidence` | L3-EVID-01: strategy + OIDC status (`evidence_trust`) |
+| PUT | `/v1/tenants/:id/workload-evidence` | Writer: set `strategy` + `oidc_issuer_url` (probes discovery unless `probe_discovery=false`) |
 | POST | `/v1/agents/:id/api-token/current` | **G-CRED-1:** Agent pulls bearer via leaf PoP (+ optional reuse of current token) |
 | POST | `/v1/agents/:id/rotate` | Agent mid-life leaf rotate (CSR; keeps `agent_id`) |
 | POST | `/v1/tenants/:id/auto-approve` | `{ "enabled": true\|false }` |
@@ -2542,17 +2648,53 @@ certificate, deleting a registration — additionally require
 | GET | `/v1/internal/authz-context` | Snapshot of what the Gateway's own authorization view looks like |
 | GET | `/v1/internal/agent-by-cert` | Resolve an agent from a certificate fingerprint |
 
-**Canonical path list** = this table (derived from `control-plane/src/http/server.ts`).
-If Connectivity / UI checklist disagree with a path here, **this table wins**
-until code changes.
-Agent **leaf** issuance is in-band: Agents send `csr_pem` on
-`POST /v1/agents/enroll` and the control plane signs with `FABRIC_AGENT_CA_*`
-(L3-AGT-02). Platform Intermediate / Root hierarchy and Gateway leaf minting
-remain out of band (`deploy/local/gen-certs.sh` locally, or your real CA
-pipeline). The control plane records fingerprints at enroll and supports
-revocation by fingerprint.
+### Workload evidence ops (L3-EVID-01) — setting up Kubernetes OIDC
 
----
+Evidence is **not** minted by a Fabric API — it comes from the customer's
+own Kubernetes cluster (a projected ServiceAccount token).
+
+#### Step 1 — Enable OIDC on the customer cluster
+
+The Agent needs a **projected ServiceAccount token** (audience
+`abluva-connect`) mounted into its pod. The OIDC issuer discovery and JWKS
+endpoints must be reachable FROM the Platform over HTTPS.
+
+**EKS (already enabled):** `aws eks describe-cluster --name <cluster> --query 'cluster.identity.oidc.issuer'`
+
+**k3s:** Configure `--service-account-issuer=https://<public-url>` in
+`/etc/rancher/k3s/config.yaml`, expose discovery endpoint externally.
+
+**Agent DaemonSet** already has the projected volume in `daemonset.yaml`.
+
+#### Step 2 — Save issuer URL in Platform (UI or curl)
+
+```bash
+curl -sS -X PUT -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $FABRIC_CONTROL_PLANE_TOKEN" \
+  -H "X-ABLV-Actor: platform-ops" \
+  "$CP/v1/tenants/$TENANT/workload-evidence" \
+  -d '{"strategy":"kubernetes_oidc","oidc_issuer_url":"https://oidc.eks..."}' | jq .
+# Expected: oidc_enabled=true, oidc_jwks_uri populated
+# If oidc_enabled=false: issuer not reachable from Platform egress.
+# For self-signed issuers: pass oidc_ca_bundle_pem (PEM cert string).
+```
+
+#### Step 3 — Verify end-to-end
+
+```bash
+kubectl -n fabric-control logs -l app=mesh-gateway --tail=100 | grep workload_evidence
+# workload_evidence_attributed = working (subject, namespace, service_account logged)
+# workload_evidence_absent = token file not mounted (check projected volume)
+# UNAUTHORIZED + sig_invalid = issuer URL mismatch or JWKS unreachable
+```
+
+#### Strategy behavior table
+
+| Strategy | Present evidence | Absent | Invalid |
+|---|---|---|---|
+| `none` (default) | Skipped | Skipped | Skipped |
+| `kubernetes_oidc` + discovery green | Verified + attributed | OK (audit only) | **UNAUTHORIZED** |
+| `kubernetes_oidc` + discovery failed | Skipped | Skipped | Skipped |
 
 ## Sign-off sheet
 

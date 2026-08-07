@@ -439,28 +439,27 @@ set in the Gateway manifest. Not dangerous; just undocumentedly inherited.
 
 ### D8 — Should new Agents auto-approve without a human?
 
-**What’s wrong**
+**Decision (2026-08-05): D8-B — on by default.**
 
-`auto_approve_agents` skips the PendingApproval step. People sometimes
-want it so rollouts (with broken `emptyDir`) “just work.” That’s treating
-a packaging bug with a weaker security control. It also **doesn’t** fix
-CrashLoop when bootstrap is revoked.
-
-**Options**
+`auto_approve_agents` defaults to **true** on new tenants so DaemonSet /
+fleet scale-out does not require a human per node. High-security tenants
+turn it **off** (`POST …/auto-approve` `{ "enabled": false }`) when they
+want manual Approve per enroll.
 
 | Pick | What it means |
 |---|---|
-| **D8-A Off by default** | Human approve stays a real Day‑1 control. **Recommended** once D2-A removes the rollout pain. |
-| **D8-B On for some SKUs** | Faster onboarding; weaker enrollment story — only if product explicitly wants that SKU |
+| **D8-A Off by default** | ~~Former recommendation~~ — rejected for normal fleet ops |
+| **D8-B On by default** | **Current** — scale-out without per-Agent UI; opt out for locked fleets |
 
-**Recommend: D8-A.**
+Does **not** fix CrashLoop when bootstrap is expired/revoked — that is
+`L3-BOOT-SCALE-01`.
 
 ---
 
 ## Recommended default bundle (if you want one line)
 
 **D2-A, D1-A (+ later multi-prior or “don’t mint every pull”), D5-A, D4-A,
-D3-A, D6-A or D6-B, D7-A, D8-A.**
+D3-A, D6-A or D6-B, D7-A, D8-B (auto-approve on by default).**
 
 ---
 

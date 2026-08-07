@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS ablv_tenants (
 -- control-plane/migrations/20260723120000-init-fabric.sql (pre-prod: no incremental chain).
 CREATE TABLE IF NOT EXISTS ablv_tenant_connect (
   tenant_id UUID PRIMARY KEY REFERENCES ablv_tenants(tenant_id),
-  auto_approve_agents BOOLEAN NOT NULL DEFAULT FALSE,
+  auto_approve_agents BOOLEAN NOT NULL DEFAULT TRUE,
   max_tunnels INTEGER NOT NULL DEFAULT 50,
   max_concurrent_streams INTEGER NOT NULL DEFAULT 2000,
   max_stream_open_per_sec INTEGER NOT NULL DEFAULT 100,
@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS ablv_tenant_connect (
   oidc_ca_bundle_pem TEXT,
   oidc_last_discovery_ok_at TIMESTAMPTZ,
   oidc_last_discovery_error TEXT,
+  workload_evidence_strategy TEXT NOT NULL DEFAULT 'none',
+  workload_evidence_config JSONB NOT NULL DEFAULT '{}'::JSONB,
   bootstrap_token_hash BYTEA,
   bootstrap_expires_at TIMESTAMPTZ,
   agent_api_token_hash BYTEA,

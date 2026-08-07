@@ -22,7 +22,7 @@ describe("L3-PKI-01 cert expiry scan", () => {
       cert_not_after: soon,
       actor: "test",
     });
-    await store.approveAgent(a1.id, "test");
+    // Default auto_approve → Connecting; tunnel not required for expiry scan.
 
     const a2 = await store.enrollAgent({
       tenant_id: tenant,
@@ -32,7 +32,6 @@ describe("L3-PKI-01 cert expiry scan", () => {
       cert_not_after: later,
       actor: "test",
     });
-    await store.approveAgent(a2.id, "test");
 
     const a3 = await store.enrollAgent({
       tenant_id: tenant,

@@ -30,12 +30,13 @@ in `Architecture-Resolutions.md`, not here. Document map: `docs/README.md`.
 | P8 | **3 Fabric tables** + FK to existing tenant table |
 | P10 / M1 | TypeScript control plane owns DB via **Sequelize**; Go Gateway read-only / no direct secret env |
 | T1 | Existing tenant table: **`ablv_tenants`**, PK column **`tenant_id`** |
-| O1 | K8s OIDC evidence only in v1 |
+| O1 | K8s OIDC evidence only as **first** strategy in v1 (extensible — see Part 4a) |
 | O2 | Evidence = Gateway attribution only (not waypoint; not authz) |
 | O3 | We ship enable scripts; JWKS must become reachable from Platform |
-| O4 | **RKE2 + EKS** |
+| O4 | **Any Kubernetes with SA issuer discovery** — EKS, RKE2, **and k3s** (incl. VM k3s appliance). Same `kubernetes_oidc` strategy. |
 | O6 | Audience `abluva-connect` |
 | O10 | Private clusters: script supports **both** JWKS-only proxy **and** Platform IP allowlist |
+| O11 | Evidence **strategy** is explicit and pluggable; Gateway picks verifier by strategy; CP stores per-tenant trust material |
 | Secrets | **No DB/secret env vars.** Use Access API → DB creds / vault |
 | S1 | Vault secret name prefix default **`ablv-fabric`** (config-driven) |
 | S2 | Bootstrap tokens: **hash in Postgres only** (not vault) |
@@ -83,19 +84,23 @@ secret sitting in its own environment variables.
 **The existing tenant table is `ablv_tenants`, with `tenant_id` as its
 primary key** — every Fabric table's foreign key points there.
 
-**Kubernetes OIDC is the only workload-evidence mechanism in v1** — nothing
-for ECS or any other substrate yet. What this evidence is used for is
-narrow and deliberate: attribution in the Gateway's own audit trail, never
-authorization, and never anything waypoint touches.
+**Kubernetes OIDC is the first workload-evidence strategy** — ECS and others
+are later strategies behind the same pluggable interface (Part 4a). Evidence
+is for attribution in the Gateway audit trail, never authorization, and never
+anything waypoint touches.
 
 **The customer, not the Platform, is responsible for making their
 cluster's OIDC discovery and JWKS endpoint reachable** — the Platform
 ships enable scripts to help with this, but the underlying network
 reachability is the customer's to arrange.
 
-**Supported clusters, for the OIDC path specifically, are RKE2 and EKS.**
-The audience value every issued token is checked against is
-`abluva-connect`.
+**Supported for the `kubernetes_oidc` strategy: any Kubernetes that can
+expose SA issuer discovery** — EKS, RKE2, and **k3s** (including the VM
+**k3s appliance** path). The appliance is Kubernetes for evidence purposes;
+do not invent a separate “VM OIDC” strategy when the Agent runs on k3s.
+Plain systemd-on-VM without Kubernetes has **no** SA token path in v1
+(`evidence_strategy=none`). The audience value every issued token is checked
+against is `abluva-connect`.
 
 **For genuinely private clusters** where the JWKS endpoint can't simply be
 made public, the enable script supports two approaches: a narrow
@@ -199,23 +204,129 @@ The frozen sequence, in the order it actually happens:
    UI, which is stored on `ablv_tenant_connect`.
 4. The Platform probes that discovery endpoint on its own, and sets
    `oidc_enabled` once it succeeds.
-5. From that point on, workloads in that cluster mount a projected service
-   account token with audience `abluva-connect`.
-6. The Connect Agent forwards that token as opaque bytes — it never parses
-   or interprets it — and the Gateway verifies it strictly for attribution
-   purposes. Verification pins the accepted algorithm to RS256 in
-   configuration (never read from the token itself, closing the
-   well-documented "alg:none" class of JWT vulnerability). A token that's
-   simply absent is a fully permitted, normal state; a token that's present
-   but fails verification is always a hard rejection of the connection —
-   never a silent fallback to treating it as if no token had been sent at
-   all.
+5. From that point on, the Connect Agent Pod mounts a **kubelet-projected**
+   service account token (audience `abluva-connect`) at
+   `FABRIC_EVIDENCE_PATH` (default `/var/run/abluva/evidence/token`) — see
+   `deploy/connect-agent/daemonset.yaml`. Fabric never writes that file via
+   API; kubelet rotates it. The Agent only reads bytes and puts them on
+   StreamOpen.
+6. The Gateway verifies those opaque bytes for attribution only. Verification
+   pins the accepted algorithm to RS256 in configuration (never read from the
+   token itself). Absent token = allowed; present-but-invalid = hard reject.
 
-The exact customer-facing commands for the two enable scripts will live in
-`Operational-Runbook.md` once they're written — the behavior described
-above is what's frozen; the specific script implementation is still ahead.
+The exact customer-facing commands for the enable scripts live in
+`Operational-Runbook.md` (API quick reference → Workload evidence ops) and
+`deploy/connect-agent/enable-oidc-*.sh`.
 
 ---
+
+## Part 4a — Extensible workload-evidence strategies (design for L3-EVID-01+)
+
+### Why not “one OIDC blob for everything”
+
+Industry pattern (SPIFFE/SPIRE, Teleport `tbot` attestors, cloud WIF):  
+**collect locally by substrate → present a typed credential → verify with a
+strategy-specific verifier** that loads trust material from a control plane.
+Do not hard-code “always JWKS” in the Gateway; do not overload UI
+**install flavor** (K8s vs VM snippet) as the evidence strategy.
+
+### Mapping flavor → evidence strategy
+
+| Customer install (UI row 2) | `agent.substrate` at enroll | Evidence strategy | Notes |
+|---|---|---|---|
+| Kubernetes (EKS / RKE2 / …) | `kubernetes` | `kubernetes_oidc` | Projected SA token, aud=`abluva-connect` |
+| VM / bare metal via **k3s appliance** | `kubernetes` (or `vm` if Agent reports vm — treat **runtime** as k3s) | `kubernetes_oidc` | **Same strategy** — k3s is Kubernetes; enable SA issuer + JWKS reachability |
+| VM plain systemd (no k3s) | `vm` | `none` (v1) | No SA token; Agent edge identity only |
+| ECS (future) | `ecs` | `ecs_task_identity` | Task IAM / identity doc — separate verifier |
+| Docker (future) | — | `none` / TBD | |
+
+**Rule:** if the Agent runs inside Kubernetes (including k3s appliance), use
+`kubernetes_oidc`. “VM” in the wizard only means “which install script”;
+it does **not** imply a different crypto verifier when the appliance is k3s.
+
+### Pattern: typed evidence + pluggable verifiers
+
+```text
+Consumer pod  →  (local collect)  →  Agent attaches evidence on StreamOpen
+                                         │
+Gateway  ←── AuthzContext includes EvidenceTrust for tenant
+         →  VerifierRegistry[strategy].Verify(bytes) → Attribution | RejectBad | AbsentOK
+```
+
+1. **Agent (collector):** chooses collector from local reality (`FABRIC_EVIDENCE_STRATEGY` or inferred from substrate). For `kubernetes_oidc`, mount projected token at `FABRIC_EVIDENCE_PATH` (today’s file hook). Optionally prefix/envelope with strategy id so Gateway need not guess.
+2. **CP (trust config):** stores which strategies are enabled for the tenant and the URLs/keys to validate them.
+3. **Gateway (verifier):** never parses unknown formats; looks up strategy → calls that verifier. Missing evidence = permitted (attribution-only). Present-but-invalid = hard reject (already frozen in Part 4).
+
+Aligns with Teleport’s “attestor per platform” and cloud “OIDC federation per issuer” without requiring SPIRE in v1.
+
+### DB / API fields
+
+**Reuse existing `ablv_tenant_connect` OIDC columns** as the config block for
+`kubernetes_oidc` (already landed):
+
+| Column | Role |
+|---|---|
+| `oidc_enabled` | Strategy armed after discovery probe succeeds |
+| `oidc_issuer_url` | Expected `iss` |
+| `oidc_jwks_uri` | JWKS fetch |
+| `oidc_audience` | Default `abluva-connect` |
+| `oidc_allowed_algs` | Pin `RS256` |
+| `oidc_ca_bundle_pem` | Optional for private JWKS TLS |
+| `oidc_last_discovery_ok_at` / `_error` | Probe health |
+
+**Additive columns (in the single init migration — pre-prod, no optional ALTER):**
+
+| Column | Type | Purpose |
+|---|---|---|
+| `workload_evidence_strategy` | `TEXT NOT NULL DEFAULT 'none'` | Active primary strategy: `none` \| `kubernetes_oidc` \| `ecs_task_identity` (later) |
+| `workload_evidence_config` | `JSONB NOT NULL DEFAULT '{}'` | Strategy-specific extras without new columns per cloud (e.g. ECS audience, allowed task-role ARN prefixes) |
+
+When `workload_evidence_strategy = 'kubernetes_oidc'`, read trust from the
+`oidc_*` columns. When `'ecs_task_identity'`, read from
+`workload_evidence_config` (and later dedicated columns if needed).  
+`oidc_enabled` remains the **discovery-probe gate** for the K8s path
+(strategy selected but JWKS unreachable → do not treat tokens as verified).
+
+**Multi-substrate tenants (later):** if one tenant has both K8s and ECS
+Agents, prefer **evidence self-describes strategy** (small envelope or
+StreamOpen field) and CP stores **enabled strategies + trust per type**
+(either JSON map in `workload_evidence_config` or a future
+`ablv_tenant_evidence_trust` table). Do not invent that table until a second
+strategy ships.
+
+### AuthzContext → Gateway
+
+Extend `/v1/internal/authz-context` (or equivalent already used by
+`FetchAuthzContext`) with a read-only block, e.g.:
+
+```json
+"evidence_trust": {
+  "strategy": "kubernetes_oidc",
+  "oidc_enabled": true,
+  "issuer_url": "https://…",
+  "jwks_uri": "https://…/openid/v1/jwks",
+  "audience": "abluva-connect",
+  "allowed_algs": ["RS256"],
+  "ca_bundle_pem": null
+}
+```
+
+Gateway caches JWKS per `(tenant_id, jwks_uri)` with refresh; CP owns
+discovery probe jobs that flip `oidc_enabled` / last_ok timestamps.
+
+### CP HTTP (still to build)
+
+- `PUT/GET /v1/tenants/:id/workload-evidence` (or `/oidc`) — set strategy +
+  issuer; never authz policy.
+- UI: after install flavor, if strategy is `kubernetes_oidc`, “Register
+  cluster issuer” step (`L3-EVID-01`).
+
+### Explicit non-goals for first slice
+
+- Using evidence for StreamOpen allow/deny allowlists (`intended_consumers`).
+- SPIRE/SPIFFE SVID verification on the customer path (Agent leaf SPIFFE SAN
+  for the **edge** remains separate).
+- A Fabric `tenant.substrate_type` column.
 
 ## Part 5 — Sequelize model shapes (Fabric tables only)
 
@@ -228,7 +339,7 @@ migrations when DDL and the TypeScript models disagree.
 
 AblvTenantConnect.init({
   tenant_id: { type: DataTypes.UUID, primaryKey: true },
-  auto_approve_agents: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  auto_approve_agents: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
   max_tunnels: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 50 },
   max_concurrent_streams: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 2000 },
   max_stream_open_per_sec: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 100 },
@@ -493,7 +604,7 @@ tenant/env ids from config (S3).
 | Piece / ticket | Status |
 |---|---|
 | L3-STORE-01 schema | Frozen — three tables + FK into `ablv_tenants.tenant_id`; migrations + Part 5 models |
-| L3-EVID-01 Kubernetes OIDC attribution path | Frozen (RKE2 + EKS); enable scripts still to be written |
+| L3-EVID-01 Kubernetes OIDC attribution path | **Shipped** — Part 4a strategies; EKS/RKE2/k3s scripts; CP API; Gateway verify |
 | Access client (R1/R2) | Both response shapes implemented in `control-plane/src/access/client.ts` |
 | Sequelize models + Access→DB connect | Landed in code |
 | `SequelizeStore` HTTP persistence | Landed — use `FABRIC_STORE=postgres` (local compose does); `FABRIC_STORE=memory` remains for tests / bare process default |

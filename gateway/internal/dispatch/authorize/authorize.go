@@ -64,6 +64,19 @@ type AuthzContext struct {
 	AgentApproved      bool
 	AgentState         string
 	AgentID            string
+	// EvidenceTrust from CP (L3-EVID-01); empty Strategy means none.
+	EvidenceTrust EvidenceTrust
+}
+
+// EvidenceTrust mirrors control-plane evidence_trust JSON.
+type EvidenceTrust struct {
+	Strategy    string
+	OIDCEnabled bool
+	IssuerURL   string
+	JWKSURI     string
+	Audience    string
+	AllowedAlgs []string
+	CABundlePEM string
 }
 
 type Store interface {
@@ -88,6 +101,8 @@ type Decision struct {
 	// Quotas is threaded through from the single FetchAuthzContext call
 	// so ReserveStream doesn't need its own extra round trip.
 	Quotas QuotaLimits
+	// EvidenceTrust for post-authz attribution verify (L3-EVID-01).
+	EvidenceTrust EvidenceTrust
 }
 
 // Authorizer is the sole registration authorization point (ADR-002).
@@ -110,7 +125,11 @@ func (a *Authorizer) AuthorizeStream(ctx context.Context, tenantID, registration
 	if err != nil {
 		return &Decision{}, fmt.Errorf("%w: %v", ErrLookupFailed, err)
 	}
-	d := &Decision{AgentState: actx.AgentState, Quotas: actx.Quotas}
+	d := &Decision{
+		AgentState:    actx.AgentState,
+		Quotas:        actx.Quotas,
+		EvidenceTrust: actx.EvidenceTrust,
+	}
 
 	if !actx.AgentApproved {
 		reason := "no agent matches tenant_id + certificate presented on this tunnel"

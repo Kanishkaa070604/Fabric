@@ -147,6 +147,11 @@ export function isAgentStale(
   return reference.getTime() <= cutoff.getTime();
 }
 
+export type WorkloadEvidenceStrategy =
+  | "none"
+  | "kubernetes_oidc"
+  | "ecs_task_identity";
+
 export type TenantConnect = {
   tenant_id: string;
   auto_approve_agents: boolean;
@@ -162,6 +167,18 @@ export type TenantConnect = {
   /** Spec §10.1 Phase 1 optional substrate binding. */
   strict_substrate_binding: boolean;
   expected_substrate_fingerprint: string | null;
+  /** L3-EVID-01 — primary evidence strategy for this tenant. */
+  workload_evidence_strategy: WorkloadEvidenceStrategy;
+  /** Strategy-specific extras (ECS later); kubernetes_oidc uses oidc_* columns. */
+  workload_evidence_config: Record<string, unknown>;
+  oidc_enabled: boolean;
+  oidc_issuer_url: string | null;
+  oidc_jwks_uri: string | null;
+  oidc_audience: string;
+  oidc_allowed_algs: string[];
+  oidc_ca_bundle_pem: string | null;
+  oidc_last_discovery_ok_at: Date | null;
+  oidc_last_discovery_error: string | null;
   bootstrap_token_hash: Buffer | null;
   bootstrap_expires_at: Date | null;
   /** L3-CTL-01a: scoped Agent API bearer (enroll / list regs / observed / rotate). */
@@ -261,7 +278,50 @@ export type AuthzContext = {
   agent_approved: boolean;
   agent_state?: string;
   agent_id?: string;
+  /**
+   * L3-EVID-01: trust material for Gateway evidence attribution.
+   * Gateway verifies when strategy≠none and (for k8s) oidc_enabled.
+   */
+  evidence_trust: EvidenceTrust;
 };
+
+/** Wire shape Gateway consumes from authz-context (and GET workload-evidence). */
+export type EvidenceTrust = {
+  strategy: WorkloadEvidenceStrategy;
+  oidc_enabled: boolean;
+  issuer_url: string | null;
+  jwks_uri: string | null;
+  audience: string;
+  allowed_algs: string[];
+  ca_bundle_pem: string | null;
+  config: Record<string, unknown>;
+};
+
+export function evidenceTrustFromTenant(t: TenantConnect | undefined): EvidenceTrust {
+  if (!t) {
+    return {
+      strategy: "none",
+      oidc_enabled: false,
+      issuer_url: null,
+      jwks_uri: null,
+      audience: "abluva-connect",
+      allowed_algs: ["RS256"],
+      ca_bundle_pem: null,
+      config: {},
+    };
+  }
+  return {
+    strategy: t.workload_evidence_strategy,
+    oidc_enabled: t.oidc_enabled,
+    issuer_url: t.oidc_issuer_url,
+    jwks_uri: t.oidc_jwks_uri,
+    audience: t.oidc_audience || "abluva-connect",
+    allowed_algs:
+      t.oidc_allowed_algs?.length > 0 ? t.oidc_allowed_algs : ["RS256"],
+    ca_bundle_pem: t.oidc_ca_bundle_pem,
+    config: t.workload_evidence_config ?? {},
+  };
+}
 
 export function assertTransition<S extends string>(
   kind: string,
@@ -389,6 +449,26 @@ export interface FabricStore {
     },
     actor: string
   ): Promise<TenantConnect>;
+  /**
+   * L3-EVID-01: set workload-evidence strategy + OIDC trust material.
+   * Caller may pass discovery results (jwks_uri, oidc_enabled, errors).
+   */
+  setWorkloadEvidence(
+    tenantId: string,
+    input: {
+      strategy?: WorkloadEvidenceStrategy;
+      oidc_issuer_url?: string | null;
+      oidc_jwks_uri?: string | null;
+      oidc_audience?: string;
+      oidc_allowed_algs?: string[];
+      oidc_ca_bundle_pem?: string | null;
+      oidc_enabled?: boolean;
+      oidc_last_discovery_ok_at?: Date | null;
+      oidc_last_discovery_error?: string | null;
+      workload_evidence_config?: Record<string, unknown>;
+    },
+    actor: string
+  ): Promise<TenantConnect>;
   /** `cause` defaults to "security" (fail safe → immediate teardown) per L2 §D.3. */
   revokeCertFingerprint(
     tenantId: string,
@@ -486,6 +566,13 @@ export function publicTenant(t: TenantConnect) {
     revoked_cert_causes: t.revoked_cert_causes,
     strict_substrate_binding: t.strict_substrate_binding,
     expected_substrate_fingerprint: t.expected_substrate_fingerprint,
+    workload_evidence_strategy: t.workload_evidence_strategy,
+    oidc_enabled: t.oidc_enabled,
+    oidc_issuer_url: t.oidc_issuer_url,
+    oidc_jwks_uri: t.oidc_jwks_uri,
+    oidc_audience: t.oidc_audience,
+    oidc_last_discovery_ok_at: t.oidc_last_discovery_ok_at,
+    oidc_last_discovery_error: t.oidc_last_discovery_error,
     bootstrap_token_outstanding: outstanding,
     bootstrap_expires_at: t.bootstrap_expires_at,
     agent_api_token_outstanding: !!(
@@ -496,6 +583,24 @@ export function publicTenant(t: TenantConnect) {
     created_by: t.created_by,
     updated_at: t.updated_at,
     updated_by: t.updated_by,
+  };
+}
+
+/** Safe JSON for GET/PUT workload-evidence (no secrets beyond CA bundle PEM). */
+export function publicWorkloadEvidence(t: TenantConnect) {
+  return {
+    tenant_id: t.tenant_id,
+    strategy: t.workload_evidence_strategy,
+    config: t.workload_evidence_config,
+    oidc_enabled: t.oidc_enabled,
+    oidc_issuer_url: t.oidc_issuer_url,
+    oidc_jwks_uri: t.oidc_jwks_uri,
+    oidc_audience: t.oidc_audience,
+    oidc_allowed_algs: t.oidc_allowed_algs,
+    oidc_ca_bundle_pem: t.oidc_ca_bundle_pem,
+    oidc_last_discovery_ok_at: t.oidc_last_discovery_ok_at,
+    oidc_last_discovery_error: t.oidc_last_discovery_error,
+    evidence_trust: evidenceTrustFromTenant(t),
   };
 }
 

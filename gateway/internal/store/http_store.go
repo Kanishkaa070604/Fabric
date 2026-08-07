@@ -41,6 +41,17 @@ type authzContext struct {
 	AgentApproved      bool                    `json:"agent_approved"`
 	AgentState         string                  `json:"agent_state,omitempty"`
 	AgentID            string                  `json:"agent_id,omitempty"`
+	EvidenceTrust      *evidenceTrustJSON      `json:"evidence_trust,omitempty"`
+}
+
+type evidenceTrustJSON struct {
+	Strategy     string   `json:"strategy"`
+	OIDCEnabled  bool     `json:"oidc_enabled"`
+	IssuerURL    string   `json:"issuer_url"`
+	JWKSURI      string   `json:"jwks_uri"`
+	Audience     string   `json:"audience"`
+	AllowedAlgs  []string `json:"allowed_algs"`
+	CABundlePEM  string   `json:"ca_bundle_pem,omitempty"`
 }
 
 func (s *HTTPStore) fetch(ctx context.Context, tenantID, registrationID, certFP, agentID string) (*authzContext, error) {
@@ -199,7 +210,7 @@ func (s *HTTPStore) FetchAuthzContext(ctx context.Context, tenantID, registratio
 	if lim.MaxStreamOpenPerSec <= 0 {
 		lim.MaxStreamOpenPerSec = 100
 	}
-	return &authorize.AuthzContext{
+	out := &authorize.AuthzContext{
 		Registration:       c.Registration,
 		EligibleAgents:     c.EligibleAgents,
 		TenantSuspended:    c.TenantSuspended,
@@ -210,5 +221,17 @@ func (s *HTTPStore) FetchAuthzContext(ctx context.Context, tenantID, registratio
 		AgentApproved:      c.AgentApproved,
 		AgentState:         c.AgentState,
 		AgentID:            c.AgentID,
-	}, nil
+	}
+	if c.EvidenceTrust != nil {
+		out.EvidenceTrust = authorize.EvidenceTrust{
+			Strategy:    c.EvidenceTrust.Strategy,
+			OIDCEnabled: c.EvidenceTrust.OIDCEnabled,
+			IssuerURL:   c.EvidenceTrust.IssuerURL,
+			JWKSURI:     c.EvidenceTrust.JWKSURI,
+			Audience:    c.EvidenceTrust.Audience,
+			AllowedAlgs: c.EvidenceTrust.AllowedAlgs,
+			CABundlePEM: c.EvidenceTrust.CABundlePEM,
+		}
+	}
+	return out, nil
 }

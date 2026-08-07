@@ -8,6 +8,7 @@ describe("MemoryStore agent lifecycle", () => {
   it("enroll → PendingApproval → approve → Connecting → tunnel up → Connected", async () => {
     const s = new MemoryStore();
     await s.ensureTenant(TENANT, "test");
+    await s.setAutoApprove(TENANT, false, "test");
     const tok = await s.issueBootstrapToken(TENANT, "test");
     const agent = await s.enrollAgent({
       tenant_id: TENANT,
@@ -41,6 +42,7 @@ describe("MemoryStore agent lifecycle", () => {
     // a Retired agent could never be resolved by it in the first place.
     const s = new MemoryStore();
     await s.ensureTenant(TENANT, "test");
+    await s.setAutoApprove(TENANT, false, "test");
     const tok = await s.issueBootstrapToken(TENANT, "test");
     const agent = await s.enrollAgent({
       tenant_id: TENANT,
@@ -67,6 +69,7 @@ describe("MemoryStore agent lifecycle", () => {
   it("G-BOOT-1: tunnel up while PendingApproval does not grant data plane", async () => {
     const s = new MemoryStore();
     await s.ensureTenant(TENANT, "test");
+    await s.setAutoApprove(TENANT, false, "test");
     const tok = await s.issueBootstrapToken(TENANT, "test");
     const agent = await s.enrollAgent({
       tenant_id: TENANT,
@@ -95,10 +98,10 @@ describe("MemoryStore agent lifecycle", () => {
     assert.equal(approved.state, "Connected");
   });
 
-  it("auto_approve lands in Connecting until tunnel up", async () => {
+  it("auto_approve (default) lands in Connecting until tunnel up", async () => {
     const s = new MemoryStore();
     await s.ensureTenant(TENANT, "test");
-    await s.setAutoApprove(TENANT, true, "test");
+    // Default auto_approve_agents=true — no setAutoApprove needed.
     const tok = await s.issueBootstrapToken(TENANT, "test");
     const agent = await s.enrollAgent({
       tenant_id: TENANT,
@@ -161,6 +164,7 @@ describe("MemoryStore agent lifecycle", () => {
     // retries in the Gateway for a tunnel that was never actually stuck.
     const s = new MemoryStore();
     await s.ensureTenant(TENANT, "test");
+    await s.setAutoApprove(TENANT, false, "test");
     const tok = await s.issueBootstrapToken(TENANT, "test");
     const agent = await s.enrollAgent({
       tenant_id: TENANT,
@@ -184,6 +188,7 @@ describe("MemoryStore agent lifecycle", () => {
   it("rejects illegal agent transitions", async () => {
     const s = new MemoryStore();
     await s.ensureTenant(TENANT, "test");
+    await s.setAutoApprove(TENANT, false, "test");
     const tok = await s.issueBootstrapToken(TENANT, "test");
     const agent = await s.enrollAgent({
       tenant_id: TENANT,
@@ -496,6 +501,7 @@ describe("MemoryStore agent lifecycle", () => {
   it("lists agents/registrations and deletes registration", async () => {
     const s = new MemoryStore();
     await s.ensureTenant(TENANT, "ops");
+    await s.setAutoApprove(TENANT, false, "ops");
     const tok = await s.issueBootstrapToken(TENANT, "ops");
     const agent = await s.enrollAgent({
       tenant_id: TENANT,

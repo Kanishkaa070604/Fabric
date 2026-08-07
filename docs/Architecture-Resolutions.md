@@ -58,7 +58,7 @@ automation, tickets, or runbook steps.
 | G-A4-1 | Customer→Customer Service | **Supported in v1** | Scope |
 | G-A2-1 | Platform service destination | Mesh DNS in `host` (Istio ServiceEntry/DNS) | Design |
 | GT | Ghostunnel | **Gateway pod only** (not Agent); `--allow-all` + CA; unix + PROXY tls-full; **no OPA** | Design |
-| Approve | Enrollment approval | **Tenant admin** in UI; SaaS break-glass; or `auto_approve_agents` | Design |
+| Approve | Approve Agent(s) | **Default auto-approve on**; optional manual Approve when tenant disables it; SaaS break-glass | Design |
 | ORM | Control-plane DB | **Sequelize** (TS); schema portable if ORM changes | Impl |
 | T1 | Tenant table | **`ablv_tenants`**, PK/FK column **`tenant_id`** | Impl |
 | S1–S3 | Vault / bootstrap / platform ids | Prefix `ablv-fabric` (config); bootstrap hash in PG; platform tenant/env in config | Impl |

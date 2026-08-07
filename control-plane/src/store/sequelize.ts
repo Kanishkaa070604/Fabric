@@ -21,7 +21,9 @@ import {
   addRevokedFingerprint,
   DEFAULT_CERT_OVERLAP_SECONDS,
   filterEligibleAgents,
+  evidenceTrustFromTenant,
   slugifyDisplayName,
+  type WorkloadEvidenceStrategy,
 } from "./types";
 
 // L2 §G.1 probe-grace (see memory.ts for full rationale).
@@ -48,6 +50,27 @@ function asTenant(row: Record<string, unknown>): TenantConnect {
     strict_substrate_binding: Boolean(row.strict_substrate_binding),
     expected_substrate_fingerprint:
       (row.expected_substrate_fingerprint as string | null) ?? null,
+    workload_evidence_strategy: (row.workload_evidence_strategy as
+      | "none"
+      | "kubernetes_oidc"
+      | "ecs_task_identity") || "none",
+    workload_evidence_config:
+      row.workload_evidence_config &&
+      typeof row.workload_evidence_config === "object"
+        ? (row.workload_evidence_config as Record<string, unknown>)
+        : {},
+    oidc_enabled: Boolean(row.oidc_enabled),
+    oidc_issuer_url: (row.oidc_issuer_url as string | null) ?? null,
+    oidc_jwks_uri: (row.oidc_jwks_uri as string | null) ?? null,
+    oidc_audience: String(row.oidc_audience || "abluva-connect"),
+    oidc_allowed_algs: Array.isArray(row.oidc_allowed_algs)
+      ? (row.oidc_allowed_algs as string[]).map(String)
+      : ["RS256"],
+    oidc_ca_bundle_pem: (row.oidc_ca_bundle_pem as string | null) ?? null,
+    oidc_last_discovery_ok_at:
+      (row.oidc_last_discovery_ok_at as Date | null) ?? null,
+    oidc_last_discovery_error:
+      (row.oidc_last_discovery_error as string | null) ?? null,
     bootstrap_token_hash: (row.bootstrap_token_hash as Buffer | null) ?? null,
     bootstrap_expires_at: (row.bootstrap_expires_at as Date | null) ?? null,
     agent_api_token_hash: (row.agent_api_token_hash as Buffer | null) ?? null,
@@ -225,7 +248,7 @@ export class SequelizeStore implements FabricStore {
       const created = await this.models.TenantConnect.create(
         {
           tenant_id: tenantId,
-          auto_approve_agents: false,
+          auto_approve_agents: true,
           max_tunnels: 50,
           max_concurrent_streams: 2000,
           max_stream_open_per_sec: 100,
@@ -233,6 +256,8 @@ export class SequelizeStore implements FabricStore {
           suspended_cause: null,
           strict_substrate_binding: false,
           expected_substrate_fingerprint: null,
+          workload_evidence_strategy: "none",
+          workload_evidence_config: {},
           oidc_enabled: false,
           oidc_audience: "abluva-connect",
           oidc_allowed_algs: ["RS256"],
@@ -789,6 +814,74 @@ export class SequelizeStore implements FabricStore {
     return this.ensureTenant(tenantId, actor);
   }
 
+  async setWorkloadEvidence(
+    tenantId: string,
+    input: {
+      strategy?: WorkloadEvidenceStrategy;
+      oidc_issuer_url?: string | null;
+      oidc_jwks_uri?: string | null;
+      oidc_audience?: string;
+      oidc_allowed_algs?: string[];
+      oidc_ca_bundle_pem?: string | null;
+      oidc_enabled?: boolean;
+      oidc_last_discovery_ok_at?: Date | null;
+      oidc_last_discovery_error?: string | null;
+      workload_evidence_config?: Record<string, unknown>;
+    },
+    actor: string
+  ): Promise<TenantConnect> {
+    await this.ensureTenant(tenantId, actor);
+    const patch: Record<string, unknown> = {
+      updated_at: new Date(),
+      updated_by: actor,
+    };
+    if (input.strategy !== undefined) {
+      const allowed: WorkloadEvidenceStrategy[] = [
+        "none",
+        "kubernetes_oidc",
+        // "ecs_task_identity" — not implemented in Gateway yet (L3-POC-ECS).
+      ];
+      if (!allowed.includes(input.strategy)) {
+        throw new Error(`workload_evidence_strategy_invalid: ${input.strategy}`);
+      }
+      patch.workload_evidence_strategy = input.strategy;
+    }
+    if (input.oidc_issuer_url !== undefined) {
+      patch.oidc_issuer_url = input.oidc_issuer_url;
+    }
+    if (input.oidc_jwks_uri !== undefined) {
+      patch.oidc_jwks_uri = input.oidc_jwks_uri;
+    }
+    if (input.oidc_audience !== undefined) {
+      patch.oidc_audience = input.oidc_audience || "abluva-connect";
+    }
+    if (input.oidc_allowed_algs !== undefined) {
+      patch.oidc_allowed_algs =
+        input.oidc_allowed_algs.length > 0
+          ? input.oidc_allowed_algs
+          : ["RS256"];
+    }
+    if (input.oidc_ca_bundle_pem !== undefined) {
+      patch.oidc_ca_bundle_pem = input.oidc_ca_bundle_pem;
+    }
+    if (input.oidc_enabled !== undefined) {
+      patch.oidc_enabled = input.oidc_enabled;
+    }
+    if (input.oidc_last_discovery_ok_at !== undefined) {
+      patch.oidc_last_discovery_ok_at = input.oidc_last_discovery_ok_at;
+    }
+    if (input.oidc_last_discovery_error !== undefined) {
+      patch.oidc_last_discovery_error = input.oidc_last_discovery_error;
+    }
+    if (input.workload_evidence_config !== undefined) {
+      patch.workload_evidence_config = input.workload_evidence_config;
+    }
+    await this.models.TenantConnect.update(patch, {
+      where: { tenant_id: tenantId },
+    });
+    return this.ensureTenant(tenantId, actor);
+  }
+
   // Must stay logically identical to types.ts's isAgentStale (SQL can't
   // call that JS function directly -- see its doc comment). Uses Op.lte,
   // not Op.lt: isAgentStale degrades at "reference <= cutoff", so this
@@ -1299,6 +1392,7 @@ export class SequelizeStore implements FabricStore {
       agent_approved,
       agent_state,
       agent_id,
+      evidence_trust: evidenceTrustFromTenant(t),
     };
   }
 

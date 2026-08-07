@@ -20,7 +20,7 @@ export function defineFabricModels(sequelize: Sequelize, cfg: FabricConfig): Fab
     "TenantConnect",
     {
       tenant_id: { type: DataTypes.UUID, primaryKey: true },
-      auto_approve_agents: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      auto_approve_agents: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
       max_tunnels: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 50 },
       max_concurrent_streams: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 2000 },
       max_stream_open_per_sec: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 100 },
@@ -36,6 +36,16 @@ export function defineFabricModels(sequelize: Sequelize, cfg: FabricConfig): Fab
       oidc_ca_bundle_pem: { type: DataTypes.TEXT },
       oidc_last_discovery_ok_at: { type: DataTypes.DATE },
       oidc_last_discovery_error: { type: DataTypes.TEXT },
+      workload_evidence_strategy: {
+        type: DataTypes.TEXT,
+        allowNull: false,
+        defaultValue: "none",
+      },
+      workload_evidence_config: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {},
+      },
       bootstrap_token_hash: { type: DataTypes.BLOB },
       bootstrap_expires_at: { type: DataTypes.DATE },
       agent_api_token_hash: { type: DataTypes.BLOB },

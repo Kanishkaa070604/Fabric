@@ -1,8 +1,14 @@
 import http from "http";
 import { URL } from "url";
 import { log } from "../logging";
-import type { AgentState, FabricStore } from "../store/types";
-import { publicRegistration, publicTenant, DEFAULT_TOKEN_OVERLAP_SECONDS } from "../store/types";
+import type { AgentState, FabricStore, WorkloadEvidenceStrategy } from "../store/types";
+import {
+  publicRegistration,
+  publicTenant,
+  publicWorkloadEvidence,
+  DEFAULT_TOKEN_OVERLAP_SECONDS,
+} from "../store/types";
+import { discoverOidcIssuer } from "../oidc/discovery";
 import { loadGatewayPushConfig, pushRevoke, type GatewayPushConfig } from "../gatewayPush";
 import { issueLeafFromCsr, loadAgentCA, type AgentCA } from "../pki/issueLeaf";
 import { verifyAgentLeafPop } from "../pki/verifyAgentLeaf";
@@ -431,6 +437,115 @@ export function createServer(store: FabricStore, opts: ServerOpts = {}) {
             actorFrom(req)
           );
           return send(res, 200, publicTenant(t));
+        } catch (e) {
+          return send(res, 400, { error: bad(e) });
+        }
+      }
+
+      if (
+        method === "GET" &&
+        /^\/v1\/tenants\/[^/]+\/workload-evidence$/.test(path)
+      ) {
+        const tenantId = path.split("/")[3];
+        const t = await store.getTenant(tenantId);
+        if (!t) return send(res, 404, { error: "tenant_not_found" });
+        return send(res, 200, publicWorkloadEvidence(t));
+      }
+
+      if (
+        method === "PUT" &&
+        /^\/v1\/tenants\/[^/]+\/workload-evidence$/.test(path)
+      ) {
+        if (authz.role !== "writer") {
+          return send(res, 403, { error: "writer_required" });
+        }
+        const tenantId = path.split("/")[3];
+        const body = JSON.parse(await readBody(req)) as Json;
+        try {
+          const strategy = body.strategy as WorkloadEvidenceStrategy | undefined;
+          let oidc_issuer_url =
+            body.oidc_issuer_url !== undefined
+              ? body.oidc_issuer_url === null
+                ? null
+                : String(body.oidc_issuer_url)
+              : undefined;
+          let oidc_jwks_uri =
+            body.oidc_jwks_uri !== undefined
+              ? body.oidc_jwks_uri === null
+                ? null
+                : String(body.oidc_jwks_uri)
+              : undefined;
+          let oidc_enabled =
+            body.oidc_enabled !== undefined
+              ? Boolean(body.oidc_enabled)
+              : undefined;
+          let oidc_last_discovery_ok_at: Date | null | undefined;
+          let oidc_last_discovery_error: string | null | undefined;
+
+          const runDiscovery =
+            body.probe_discovery !== false &&
+            (strategy === "kubernetes_oidc" ||
+              (strategy === undefined && oidc_issuer_url)) &&
+            oidc_issuer_url;
+
+          if (runDiscovery && oidc_issuer_url) {
+            const disc = await discoverOidcIssuer(oidc_issuer_url, {
+              caBundlePem:
+                body.oidc_ca_bundle_pem !== undefined
+                  ? body.oidc_ca_bundle_pem === null
+                    ? null
+                    : String(body.oidc_ca_bundle_pem)
+                  : undefined,
+            });
+            if (disc.ok) {
+              oidc_jwks_uri = disc.jwks_uri;
+              oidc_enabled = true;
+              oidc_last_discovery_ok_at = new Date();
+              oidc_last_discovery_error = null;
+              if (!oidc_issuer_url) oidc_issuer_url = disc.issuer;
+            } else {
+              oidc_enabled = false;
+              oidc_last_discovery_ok_at = null;
+              oidc_last_discovery_error = disc.error;
+            }
+          }
+
+          if (strategy === "none") {
+            oidc_enabled = false;
+          }
+
+          const t = await store.setWorkloadEvidence(
+            tenantId,
+            {
+              strategy,
+              oidc_issuer_url,
+              oidc_jwks_uri,
+              oidc_audience:
+                body.oidc_audience !== undefined
+                  ? String(body.oidc_audience)
+                  : undefined,
+              oidc_allowed_algs: Array.isArray(body.oidc_allowed_algs)
+                ? (body.oidc_allowed_algs as unknown[]).map(String)
+                : undefined,
+              oidc_ca_bundle_pem:
+                body.oidc_ca_bundle_pem !== undefined
+                  ? body.oidc_ca_bundle_pem === null
+                    ? null
+                    : String(body.oidc_ca_bundle_pem)
+                  : undefined,
+              oidc_enabled,
+              oidc_last_discovery_ok_at,
+              oidc_last_discovery_error,
+              workload_evidence_config:
+                body.config !== undefined &&
+                body.config !== null &&
+                typeof body.config === "object"
+                  ? (body.config as Record<string, unknown>)
+                  : undefined,
+            },
+            actorFrom(req)
+          );
+          return send(res, 200, publicWorkloadEvidence(t));
         } catch (e) {
           return send(res, 400, { error: bad(e) });
         }

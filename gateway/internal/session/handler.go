@@ -22,6 +22,7 @@ import (
 
 	"github.com/abluva/fabric/gateway/internal/dispatch/adapter"
 	"github.com/abluva/fabric/gateway/internal/dispatch/authorize"
+	"github.com/abluva/fabric/gateway/internal/evidence"
 	"github.com/abluva/fabric/gateway/internal/logging"
 	"github.com/abluva/fabric/gateway/internal/quota"
 	"github.com/abluva/fabric/gateway/internal/store"
@@ -40,6 +41,8 @@ type Handler struct {
 	WriteTO    time.Duration
 	CPURL      string
 	HTTPClient *http.Client
+	// Evidence verifies optional StreamOpen workload_evidence (L3-EVID-01).
+	Evidence *evidence.Verifier
 
 	// draining and inFlight implement Level 1 §12's graceful-shutdown step:
 	// once draining is set, no new streams are dispatched (existing ones are
@@ -69,6 +72,7 @@ func NewHandler(
 		WriteTO:    writeTO,
 		CPURL:      cpURL,
 		HTTPClient: &http.Client{Timeout: 5 * time.Second},
+		Evidence:   evidence.NewVerifier(),
 	}
 }
 
@@ -605,6 +609,54 @@ func (h *Handler) handleStream(parent context.Context, id terminate.Identity, sc
 			CorrelationID: logging.FromContext(ctx).CorrelationID,
 		})
 		return
+	}
+
+	// L3-EVID-01: optional workload evidence attribution (never allowlist).
+	// Absent OK; present-but-invalid → UNAUTHORIZED when strategy is armed.
+	if h.Evidence != nil {
+		trust := evidence.Trust{
+			Strategy:    decision.EvidenceTrust.Strategy,
+			OIDCEnabled: decision.EvidenceTrust.OIDCEnabled,
+			IssuerURL:   decision.EvidenceTrust.IssuerURL,
+			JWKSURI:     decision.EvidenceTrust.JWKSURI,
+			Audience:    decision.EvidenceTrust.Audience,
+			AllowedAlgs: decision.EvidenceTrust.AllowedAlgs,
+			CABundlePEM: decision.EvidenceTrust.CABundlePEM,
+		}
+		eres, eerr := h.Evidence.Verify(ctx, trust, open.WorkloadEvidence)
+		if eerr != nil {
+			reason := eerr.Error()
+			logging.Info(ctx, h.Log, "stream_denied",
+				"outcome", stream.OutcomeUnauthorized,
+				"reason", reason,
+				"evidence_strategy", trust.Strategy,
+			)
+			_ = stream.WriteMessage(sc, stream.StreamOpenResult{
+				Outcome:       stream.OutcomeUnauthorized,
+				Reason:        reason,
+				CorrelationID: logging.FromContext(ctx).CorrelationID,
+			})
+			return
+		}
+		if eres.Absent {
+			logging.Info(ctx, h.Log, "workload_evidence_absent",
+				"evidence_strategy", trust.Strategy,
+			)
+		} else if eres.Skipped {
+			logging.Debug(ctx, h.Log, "workload_evidence_skipped",
+				"evidence_strategy", trust.Strategy,
+			)
+		} else if eres.Attribution != nil {
+			a := eres.Attribution
+			logging.Info(ctx, h.Log, "workload_evidence_attributed",
+				"evidence_strategy", a.Strategy,
+				"evidence_sub", a.Subject,
+				"evidence_iss", a.Issuer,
+				"evidence_aud", a.Audience,
+				"evidence_sa", a.Extra["service_account"],
+				"evidence_ns", a.Extra["namespace"],
+			)
+		}
 	}
 
 	releaseStream, err := h.Authorizer.ReserveStream(ctx, open.TenantID, decision.Quotas)

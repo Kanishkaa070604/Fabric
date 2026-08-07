@@ -181,11 +181,45 @@ These were already listed in `L2-Design.docx` → **Remaining Items Before Devel
 
 **Still blocked before coding:** Access API response JSON samples (R1/R2).
 
-### L3-EVID-01 — Workload-evidence verifier clients
+### L3-BOOT-SCALE-01 — Post-expiry bootstrap for new Agent identities (open)
 
-**Status:** Approach frozen — Kubernetes OIDC only, **RKE2 + EKS**; attribution only; private clusters: JWKS proxy **and** SaaS IP allowlist. Audience `abluva-connect`. ECS later. Schema columns exist on `ablv_tenant_connect` (`oidc_issuer_url`, `oidc_jwks_uri`, …); **no** PUT/GET OIDC CRUD on CP HTTP yet.
+**Status:** **Open** — ops hole documented 2026-08-05.
 
-**Still to implement (after go-ahead):** EKS/RKE2 enable scripts (`enable-oidc-eks/rke2.sh`); CP tenant OIDC fields API; Gateway JWKS verifier (attribution only, not authz); JWKS refresh + discovery probe jobs; UI issuer registration.
+**Problem:** A brand-new Agent identity (new node / new task with empty
+identity store) can enroll only while a **live bootstrap token** exists.
+After `bootstrap_expires_at`, scale-out requires: issue bootstrap again →
+put token into the customer install Secret → restart/roll Agents that need
+first enroll → (if `auto_approve_agents=false`) Approve each. Redistributing
+bootstrap for routine node growth is not an acceptable default ops flow.
+
+**When the painful path is intentional:** high-security / fixed fleets that
+**turn auto-approve off** and keep a short bootstrap window — new joins are
+deliberately gated (new bootstrap + human Approve). That is a product
+choice for locked environments, not the default.
+
+**Mitigations today (partial):**
+- Default **`auto_approve_agents=true`** removes the Approve step for scale-out.
+- Keep bootstrap window open for the planned scale period (multi-redeem).
+- Identity on K8s Secret survives **pod restart** on the same node (no re-enroll).
+
+**Still missing (future work):** a Day‑N join path that does not require
+pasting a new bootstrap into the customer Secret for every post-expiry new
+node (e.g. longer-lived install credential, cluster attestation enroll, or
+Platform-mediated join). Until then, treat re-bootstrap+redistribute as the
+known fallback and document it honestly in Runbook / UI.
+
+---
+
+**Status:** **Implemented (attribution path)** 2026-08-05 — pluggable
+`workload_evidence_strategy` (`none` \| `kubernetes_oidc` \| `ecs_task_identity`);
+CP `GET/PUT /v1/tenants/:id/workload-evidence` + discovery probe; authz-context
+`evidence_trust`; Gateway JWKS RS256 verifier (absent OK; bad token reject);
+enable scripts for EKS/RKE2/**k3s**; DaemonSet projected token mount (Agent SA).
+Still **attribution only** (§6.2) — not allowlist authz.
+
+**Follow-ups:** ECS strategy verifier; richer caller-SA for shared DaemonSet
+(sidecar / dialer-injected token); scheduled JWKS re-probe job; UI issuer
+form (checklist §3b).
 
 
 ---
@@ -214,7 +248,7 @@ Use this table instead of older “deferred” notes that still say CSR/issue is
 | **Substrate** | Packaging strategy | **Done** | D10: `tenant-start.sh` (K8s, Helm planned not shipped) / k3s appliance (VM, recommended) / task def (ECS, blocked on PoC) / compose (Docker) |
 | **PKI** | Revoke + push | **Done** | `revoke-cert` + `/internal/revoke` + Gateway poll; smoked |
 | **PKI** | Expiry / CRL refresh jobs | **Done** (alert job; no CRL) | `certExpiryScan` consumes `cert_not_after`; Ghostunnel CRL still non-goal |
-| **OIDC** | Customer enable + CRUD + Gateway verify + JWKS probe | **Open** (`L3-EVID-01`) | Schema only; attribution-only by design (§6.2) — not an authz gap |
+| **OIDC** | Customer enable + CRUD + Gateway verify + JWKS probe | **Done (attribution)** (`L3-EVID-01`) | Strategy + PUT API + Gateway verify; ECS later; UI §3b |
 | **Auth** | Bearer + dual-control | **Interim Done** | High-risk routes |
 | **Auth** | Scoped Agent token (API) | **Done** (`L3-CTL-01a`) | `…/agent-api-token` |
 | **Auth** | Agent credential pull (bearer file + leaf-auth refresh) | **Done** (`L3-CRED-01` / **G-CRED-1**) | No seed; pull from Day-1 onward |
@@ -235,7 +269,8 @@ None of the remaining **code** items are trust-boundary blockers (those closed w
 | **L3-PKI-01** expiry scan | **Done** (job on by default) | Optional webhook sink | Fail-closed on expiry still applies; job is on-call warning — create `fabric-cert-expiry-webhook` Secret when ready |
 | **L3-MESH-01** Ambient verify | No | ~~Was~~ **Done** on laptop Platform k3d (reconfirmed 2026-07-27) | Re-run once on real Platform cluster at cutover |
 | **L3-CTL-01** 1b/1c | No | Defer | Hardening / visibility |
-| **L3-EVID-01** OIDC | No | Defer | Attribution richness only |
+| **L3-BOOT-SCALE-01** post-expiry bootstrap scale-out | No (workaround: open window / re-issue) | Prefer fix before large fleets | New identity after bootstrap expiry needs redistributed token; auto-approve≠bootstrap |
+| **L3-EVID-01** OIDC | ~~Open~~ **Done (attribution)** | Optional before go-live | Strategy API + Gateway verify shipped; ECS / caller-SA dialer later |
 | **L3-POC-ECS** / ACL-02 | No | Post K8s GA | Substrate not in v1 |
 | **L3-STORE-01** Access samples | No | External | Blocks nothing functional in this repo |
 | **D2 hostPath survival smoke** | No (DaemonSet shipped) | Recommended before fleet GA | Explicit “rollout keeps agent_id” assert still nice-to-have in Validation-Plan |

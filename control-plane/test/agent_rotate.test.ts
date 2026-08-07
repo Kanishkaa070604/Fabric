@@ -130,7 +130,7 @@ describe("L3-PKI-01a rotateAgentCert", () => {
         cert_not_after: leaf1.notAfter,
         actor: "test",
       });
-      await store.approveAgent(agent.id, "tenant-admin");
+      // Default auto_approve → Connecting
       await store.reportTunnel({
         tenant_id: tenant,
         agent_id: agent.id,

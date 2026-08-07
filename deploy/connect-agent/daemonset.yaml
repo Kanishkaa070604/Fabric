@@ -160,6 +160,13 @@ spec:
             # required if you leave this at "file").
             - name: FABRIC_IDENTITY_STORE
               value: "kubernetes"
+            - name: FABRIC_SUBSTRATE
+              value: "kubernetes"
+            # L3-EVID-01: optional path for projected SA token (audience abluva-connect).
+            # DaemonSet shared listener: this mounts the *Agent* SA unless you use
+            # a per-app sidecar Agent. See enable-oidc-*.sh + Level-3-Store-OIDC-Spec Part 4a.
+            - name: FABRIC_EVIDENCE_PATH
+              value: /var/run/abluva/evidence/token
             - name: FABRIC_NODE_NAME
               valueFrom:
                 fieldRef:
@@ -220,6 +227,11 @@ spec:
               readOnly: true
             - name: agent-identity
               mountPath: /var/run/abluva
+            # L3-EVID-01: Agent SA token (aud=abluva-connect). Nested under
+            # /var/run/abluva so it does not collide with identity emptyDir.
+            - name: abluva-evidence
+              mountPath: /var/run/abluva/evidence
+              readOnly: true
           readinessProbe:
             exec:
               command: ["/connect-agent", "ready"]
@@ -252,6 +264,13 @@ spec:
         # hostPath was the v1 default before this Store abstraction existed.
         - name: agent-identity
           emptyDir: {}
+        - name: abluva-evidence
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: abluva-connect
+                  expirationSeconds: 3600
         # Legacy fallback (FABRIC_IDENTITY_STORE=file only) — uncomment and
         # remove the emptyDir entry above if you are not yet ready to grant
         # the Secret RBAC:

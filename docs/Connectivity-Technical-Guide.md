@@ -175,7 +175,8 @@ tunnel registry on cert fingerprint.
   (per-node Secret; emptyDir is cache only). Binary/VM default is `file`.
   Plain `emptyDir` with `file` store ⇒ every pod recreate re-enrolls ⇒ new
   `agent_id` ⇒ re-approve.
-- Human: approve once per new instance (unless `auto_approve_agents`).
+- Human: approve once per new instance only when `auto_approve_agents` is
+  **off** (high-security); default is auto-approve on.
 
 **Steady-state rotate (D3-AUTO — always on):**
 
@@ -767,8 +768,10 @@ type Method interface {
 **UI implication:** Tenant onboarding asks "What infrastructure?" to
 generate the correct install snippet (`FABRIC_IDENTITY_STORE` +
 substrate-specific manifest). That answer is the UI/SaaS app's own
-onboarding state — Fabric's control-plane has no `substrate_type` column.
-The only substrate signal Fabric itself stores is each *Agent's* own
+onboarding state — Fabric's control-plane has no tenant install-flavor
+column (`tenant.substrate_type` is **not** a real field; see
+`Tenant-App-UI-Checklist.md` → Install flavor). The only substrate signal
+Fabric itself stores is each *Agent's* own
 `substrate` field, reported at enroll (`kubernetes` / `ecs` / `vm`),
 which is per-instance, not per-tenant.
 
