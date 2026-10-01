@@ -1,0 +1,18 @@
+# Local G-A3-1 DNS: any <reg>.<tenant>.connect.fabric → host loopback (Gateway inbound :18444).
+# Production Controller would upsert the same shared endpoints per Active CUSTOMER_* registration.
+.:53 {
+    errors
+    health
+    ready
+}
+
+connect.fabric:53 {
+    errors
+    log
+    template IN A {
+        match ".*"
+        answer "{{ .Name }} 30 IN A 127.0.0.1"
+        fallthrough
+    }
+    # No upstream for this zone — NXDOMAIN for unmatched types
+}

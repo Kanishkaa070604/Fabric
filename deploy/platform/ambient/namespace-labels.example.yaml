@@ -1,0 +1,20 @@
+# Example: enroll Platform namespaces in Ambient (ztunnel L4).
+# Prefer: ./enroll-namespaces.sh fabric-control 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+#
+# Required labels for Spec pathways that touch Ambient on this namespace:
+#   A1, A2 (Gateway egress / Platform Service), A3 (Platform Service), B1, B4
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+  labels:
+    istio.io/dataplane-mode: ambient
+    ablv.mesh/waypoint: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fabric-control
+  labels:
+    istio.io/dataplane-mode: ambient
+    ablv.mesh/waypoint: "false"

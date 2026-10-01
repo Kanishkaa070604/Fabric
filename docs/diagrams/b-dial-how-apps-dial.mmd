@@ -1,0 +1,22 @@
+flowchart TB
+  %% B-DIAL — How apps dial (table twin)
+  %% Canonical visual: b-dial-how-apps-dial.svg
+
+  subgraph DIAL["What to put in config"]
+    C2P["Customer → Platform<br/>connect-agent.&lt;ns&gt;.svc:&lt;port&gt;"]
+    P2C["Platform → Customer<br/>privacy.&lt;tenant_id&gt;.connect.abluva.com:8444<br/>or &lt;reg&gt;.&lt;tenant&gt;.connect.abluva.com"]
+    A1["Same-cluster Platform<br/>&lt;svc&gt;.&lt;saas-ns&gt;.svc:&lt;port&gt;"]
+    TUN["Agent → Gateway only<br/>fabric.abluva.com:8443"]
+  end
+
+  C2P --> AGENT["Connect Agent listener"]
+  AGENT --> GW["Gateway authz + relay"]
+  P2C --> SNI["Shared inbound VIP · SNI key"]
+  SNI --> GW
+  A1 --> ZT["ztunnel · no Gateway"]
+  TUN --> GW
+
+  classDef brand fill:#FFFFFF,stroke:#674EA7,color:#344054
+  classDef secure fill:#ECFDF3,stroke:#16A34A,color:#344054
+  class C2P,P2C,TUN,AGENT,GW,SNI brand
+  class A1,ZT secure

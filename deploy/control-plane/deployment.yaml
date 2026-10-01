@@ -1,0 +1,159 @@
+# Fabric control-plane (Agent enroll, authz, registrations, DNS reconcile, revoke push).
+# NOT product control-server:5001 — leave that Deployment alone.
+# Gateway → FABRIC_CONTROL_PLANE_URL = this Service :8080
+#
+# Do NOT also apply deployment-split-reconciler.yaml (second DNS writer).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fabric-control-plane
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fabric-control-plane-dns-lease
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: ["fabric-dns-reconciler"]
+    verbs: ["get", "update"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fabric-control-plane-dns-lease
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+subjects:
+  - kind: ServiceAccount
+    name: fabric-control-plane
+    namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+roleRef:
+  kind: Role
+  name: fabric-control-plane-dns-lease
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fabric-control-plane
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  # NodePort: public Agents poll fabric.abluva.com:8080 via NLB → this nodePort.
+  # (Gateway uses in-cluster ClusterIP DNS; type NodePort still provides ClusterIP.)
+  type: NodePort
+  selector:
+    app: fabric-control-plane
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      # Pin to match NLB backend set control-plane-8080 (workers :32528).
+      nodePort: 32528
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fabric-control-plane
+  namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fabric-control-plane
+  template:
+    metadata:
+      labels:
+        app: fabric-control-plane
+        # In Ambient mesh (ns enrolled). PeerAuthentication PERMISSIVE lets
+        # opted-out fabric-gateway dial this Service with plaintext.
+    spec:
+      serviceAccountName: fabric-control-plane
+      imagePullSecrets:
+        - name: ocir-secret
+      containers:
+        - name: control-plane
+          image: phx.ocir.io/axsfgj15p1je/fabric-control-plane:v6
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: FABRIC_CONTROL_PLANE_PORT
+              value: "8080"
+            - name: FABRIC_STORE
+              value: postgres
+            - name: FABRIC_PG_SCHEMA
+              value: control
+            # DB creds via Access (control#database → schema control).
+            # Do NOT set FABRIC_DATABASE_URL. Access is in Ambient; PA PERMISSIVE.
+            - name: ABLV_ACCESS_URL
+              value: http://unified-access-service.3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c.svc.cluster.local:3100/v1/access
+            - name: ABLV_ACCESS_DB_RESOURCE_TYPE
+              value: control#database
+            - name: ABLV_PLATFORM_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-platform-ids
+                  key: tenant_id
+            - name: ABLV_PLATFORM_ENVIRONMENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-platform-ids
+                  key: environment_id
+            - name: FABRIC_CONTROL_PLANE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-control-plane-auth
+                  key: bearer_token
+            - name: FABRIC_DUAL_CONTROL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-control-plane-auth
+                  key: dual_control_token
+            - name: FABRIC_GATEWAY_CONTROL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-control-plane-auth
+                  key: gateway_control_token
+            - name: FABRIC_GATEWAY_PUSH_DNS_NAMES
+              value: fabric-gateway.fabric-control.svc.cluster.local
+            - name: FABRIC_GATEWAY_PUSH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-control-plane-auth
+                  key: revoke_push_token
+            - name: FABRIC_GATEWAY_INBOUND_DOMAIN
+              value: connect.abluva.com
+            - name: FABRIC_DNS_RECONCILE_ENABLED
+              value: "1"
+            - name: FABRIC_DNS_PROVIDER
+              value: webhook
+            - name: FABRIC_DNS_WEBHOOK_URL
+              value: http://fabric-dns-webhook.3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c.svc:8090
+            - name: FABRIC_DNS_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-dns-webhook-token
+                  key: token
+            - name: FABRIC_DNS_TARGET
+              value: fabric.abluva.com
+            - name: FABRIC_AGENT_CA_CERT_FILE
+              value: /etc/fabric/agent-ca/ca.crt
+            - name: FABRIC_AGENT_CA_KEY_FILE
+              value: /etc/fabric/agent-ca/ca.key
+          volumeMounts:
+            - name: dns-state
+              mountPath: /var/run/fabric
+            - name: agent-ca
+              mountPath: /etc/fabric/agent-ca
+              readOnly: true
+      volumes:
+        - name: dns-state
+          emptyDir: {}
+        - name: agent-ca
+          secret:
+            secretName: fabric-agent-ca

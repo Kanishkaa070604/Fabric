@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Abluva Platform HA and DR on OCI</title>
+  <desc id="desc">Primary region AD HA on regional LBs; Cloudflare DNS steers fabric.abluva.com to primary or standby Mesh NLB; multi-region DR by subscription.</desc>
+
+  <style>
+    .title { font: 600 20px Inter, -apple-system, 'Segoe UI', system-ui, sans-serif; fill: #FFFFFF; letter-spacing: -0.02em; }
+    .subtitle { font: 400 12px Inter, system-ui, sans-serif; fill: rgba(255,255,255,0.88); }
+    .zone { font: 600 11px Inter, system-ui, sans-serif; fill: #667085; letter-spacing: 0.08em; text-transform: uppercase; }
+    .cardTitle { font: 600 13px Inter, system-ui, sans-serif; fill: #344054; }
+    .cardBody { font: 400 11px Inter, system-ui, sans-serif; fill: #667085; }
+    .mono { font: 500 10px ui-monospace, 'SF Mono', Menlo, monospace; fill: #344054; }
+    .footer { font: 400 10px Inter, system-ui, sans-serif; fill: #667085; }
+    .pathLbl { font: 600 10px Inter, system-ui, sans-serif; fill: #98A2B3; }
+    .pathLblRed { font: 600 10px Inter, system-ui, sans-serif; fill: #DC2626; }
+  </style>
+
+  <defs>
+    <clipPath id="clipPrimary"><rect x="48" y="136" width="1040" height="700" rx="12"/></clipPath>
+    <clipPath id="clipFlex"><rect x="80" y="208" width="200" height="36" rx="6"/></clipPath>
+    <clipPath id="clipNlb"><rect x="296" y="208" width="240" height="36" rx="6"/></clipPath>
+    <clipPath id="clipOke"><rect x="64" y="272" width="1008" height="360" rx="10"/></clipPath>
+    <clipPath id="clipNp1"><rect x="96" y="360" width="272" height="88" rx="6"/></clipPath>
+    <clipPath id="clipNp2"><rect x="424" y="360" width="272" height="88" rx="6"/></clipPath>
+    <clipPath id="clipNp3"><rect x="752" y="360" width="288" height="88" rx="6"/></clipPath>
+    <clipPath id="clipVault"><rect x="312" y="648" width="240" height="168" rx="10"/></clipPath>
+    <clipPath id="clipPg"><rect x="568" y="648" width="504" height="168" rx="10"/></clipPath>
+    <clipPath id="clipDr"><rect x="1120" y="136" width="432" height="700" rx="12"/></clipPath>
+    <clipPath id="clipDrOke"><rect x="1136" y="256" width="400" height="200" rx="8"/></clipPath>
+    <clipPath id="clipDrPg"><rect x="1136" y="472" width="400" height="152" rx="8"/></clipPath>
+    <marker id="arrowGray" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#98A2B3"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#DC2626"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="900" fill="#FFFFFF"/>
+
+  <rect x="0" y="0" width="1600" height="56" fill="#674EA7"/>
+  <text x="48" y="26" class="title">Resilience &#183; in-region HA and multi-region DR</text>
+  <text x="48" y="44" class="subtitle">AD HA on regional LBs &#183; region failover via Cloudflare DNS &#183; multi-region by subscription</text>
+  <text x="1552" y="34" text-anchor="end" class="subtitle">abluva.com</text>
+
+
+  <!-- Global DNS (Route53-equivalent): steers hostname to regional NLB VIP -->
+  <rect x="48" y="64" width="1504" height="56" rx="10" fill="#FFFAEB" stroke="#F79009" stroke-width="1.5"/>
+  <rect x="48" y="64" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+  <image href="icons/DomainNameSystemDNS.svg" x="48" y="64" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  <text x="92" y="84" class="zone">Cloudflare DNS &#183; global traffic steering</text>
+  <text x="92" y="104" class="mono">fabric.abluva.com &#183; *.connect.abluva.com</text>
+  <text x="520" y="84" class="cardBody">Normal: A/CNAME &#8594; primary regional Mesh NLB VIP</text>
+  <text x="520" y="104" class="cardBody">Region outage: update DNS &#8594; standby Mesh NLB VIP (same hostnames)</text>
+  <text x="1200" y="94" class="cardBody">Not an OCI global LB &#183; DNS is the cutover plane</text>
+
+  <!-- Primary -->
+  <g clip-path="url(#clipPrimary)">
+    <rect x="48" y="136" width="1040" height="700" rx="12" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+    <rect x="48" y="136" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/DedicatedRegion.svg" x="48" y="136" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="88" y="156" class="zone">OCI Region &#183; Primary (active)</text>
+
+  <rect x="64" y="176" width="1008" height="80" rx="10" fill="#EFF8FF" stroke="#2E90FA" stroke-width="1.5"/>
+  <text x="80" y="196" class="zone">Public &#183; regional front doors</text>
+
+  <g clip-path="url(#clipFlex)">
+    <rect x="80" y="208" width="200" height="36" rx="6" fill="#FFFFFF" stroke="#2E90FA"/>
+    <rect x="80" y="208" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/LoadBalancerLB.svg" x="80" y="208" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="120" y="230" class="cardTitle">Flexible LB (regional)</text>
+
+  <g clip-path="url(#clipNlb)">
+    <rect x="296" y="208" width="240" height="36" rx="6" fill="#FFFFFF" stroke="#674EA7"/>
+    <rect x="296" y="208" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/NetworkLoadBalancerLB.svg" x="296" y="208" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="336" y="230" class="cardTitle">Mesh NLB (regional)</text>
+
+  <text x="560" y="230" class="cardBody">Regional only &#183; AD loss needs no DNS change</text>
+
+  <g clip-path="url(#clipOke)">
+    <rect x="64" y="272" width="1008" height="360" rx="10" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="1.5"/>
+    <rect x="64" y="272" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/ContainerEngineForKubernetes.svg" x="64" y="272" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="108" y="292" class="cardTitle">OKE Cluster</text>
+  <text x="220" y="292" class="cardBody">Private &#183; Ambient enrolled &#183; fabric-control + SaaS ns on every pool</text>
+
+  <!-- AD-1 -->
+  <rect x="80" y="320" width="304" height="288" rx="8" fill="#FFFFFF" stroke="#D0D5DD"/>
+  <text x="96" y="344" class="zone">AD-1</text>
+  <g clip-path="url(#clipNp1)">
+    <rect x="96" y="360" width="272" height="88" rx="6" fill="#FCFCFD" stroke="#D0D5DD"/>
+    <rect x="96" y="360" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/NodePool.svg" x="96" y="360" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="136" y="380" class="cardTitle">Node Pool A</text>
+  <text x="108" y="412" class="cardBody">Gateway / Ghostunnel replicas</text>
+  <text x="108" y="428" class="cardBody">SaaS pods (CP, discovery, &#8230;)</text>
+  <rect x="96" y="464" width="272" height="56" rx="6" fill="#FFFFFF" stroke="#B4A7D6"/>
+  <text x="112" y="488" class="cardTitle">Workload slice</text>
+  <text x="112" y="504" class="cardBody">fabric-control + SaaS ns</text>
+  <text x="96" y="548" class="cardBody">ztunnel on every node</text>
+  <text x="96" y="568" class="cardBody">(ambient-plane DaemonSet)</text>
+  <text x="96" y="592" class="cardBody">Survives AD-1 loss via AD-2/3</text>
+
+  <!-- AD-2 -->
+  <rect x="408" y="320" width="304" height="288" rx="8" fill="#FFFFFF" stroke="#D0D5DD"/>
+  <text x="424" y="344" class="zone">AD-2</text>
+  <g clip-path="url(#clipNp2)">
+    <rect x="424" y="360" width="272" height="88" rx="6" fill="#FCFCFD" stroke="#D0D5DD"/>
+    <rect x="424" y="360" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/NodePool.svg" x="424" y="360" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="464" y="380" class="cardTitle">Node Pool B</text>
+  <text x="436" y="412" class="cardBody">Gateway / Ghostunnel replicas</text>
+  <text x="436" y="428" class="cardBody">SaaS pods (CP, discovery, &#8230;)</text>
+  <rect x="424" y="464" width="272" height="56" rx="6" fill="#FFFFFF" stroke="#B4A7D6"/>
+  <text x="440" y="488" class="cardTitle">Workload slice</text>
+  <text x="440" y="504" class="cardBody">fabric-control + SaaS ns</text>
+  <text x="424" y="548" class="cardBody">ztunnel on every node</text>
+  <text x="424" y="568" class="cardBody">(ambient-plane DaemonSet)</text>
+  <text x="424" y="592" class="cardBody">Survives AD-2 loss via AD-1/3</text>
+
+  <!-- AD-3 -->
+  <rect x="736" y="320" width="320" height="288" rx="8" fill="#FFFFFF" stroke="#D0D5DD"/>
+  <text x="752" y="344" class="zone">AD-3</text>
+  <g clip-path="url(#clipNp3)">
+    <rect x="752" y="360" width="288" height="88" rx="6" fill="#FCFCFD" stroke="#D0D5DD"/>
+    <rect x="752" y="360" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/NodePool.svg" x="752" y="360" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="792" y="380" class="cardTitle">Node Pool C</text>
+  <text x="764" y="412" class="cardBody">Gateway / Ghostunnel replicas</text>
+  <text x="764" y="428" class="cardBody">SaaS pods (CP, discovery, &#8230;)</text>
+  <rect x="752" y="464" width="288" height="56" rx="6" fill="#FFFFFF" stroke="#B4A7D6"/>
+  <text x="768" y="488" class="cardTitle">Workload slice</text>
+  <text x="768" y="504" class="cardBody">fabric-control + SaaS ns</text>
+  <text x="752" y="548" class="cardBody">ztunnel on every node</text>
+  <text x="752" y="568" class="cardBody">(ambient-plane DaemonSet)</text>
+  <text x="752" y="592" class="cardBody">Optional if only 2 ADs used</text>
+
+  <!-- Data row: HA + Vault LEFT, Postgres RIGHT (adjacent to DR) -->
+  <rect x="64" y="648" width="232" height="168" rx="10" fill="#ECFDF3" stroke="#16A34A"/>
+  <text x="80" y="680" class="cardTitle">In-region HA</text>
+  <text x="80" y="708" class="cardBody">If one AD is lost:</text>
+  <text x="80" y="732" class="cardBody">&#183; LBs keep serving</text>
+  <text x="80" y="756" class="cardBody">&#183; Pods move to other pools</text>
+  <text x="80" y="780" class="cardBody">&#183; No Agent change</text>
+
+  <g clip-path="url(#clipVault)">
+    <rect x="312" y="648" width="240" height="168" rx="10" fill="#FFFFFF" stroke="#D0D5DD"/>
+    <rect x="312" y="648" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/Vault.svg" x="312" y="648" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="352" y="668" class="cardTitle">OCI Vault</text>
+  <text x="328" y="700" class="cardBody">Regional secrets</text>
+  <text x="328" y="720" class="cardBody">Replicated keys / secrets</text>
+  <text x="328" y="740" class="cardBody">Not AD-scoped</text>
+  <text x="328" y="768" class="cardBody">Day-0 secrets via Access API</text>
+  <text x="328" y="788" class="cardBody">Standby-region secrets with DR</text>
+
+  <g clip-path="url(#clipPg)">
+    <rect x="568" y="648" width="504" height="168" rx="10" fill="#FFFFFF" stroke="#D0D5DD"/>
+    <rect x="568" y="648" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/DatabaseSystemDBS.svg" x="568" y="648" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="608" y="668" class="cardTitle">Managed Postgres &#183; Primary</text>
+  <text x="584" y="700" class="cardBody">Regional service &#183; multi-AD durable</text>
+  <text x="584" y="720" class="cardBody">Platform state (agents, registrations)</text>
+  <text x="584" y="748" class="cardBody">Cross-region standby by subscription</text>
+  <text x="584" y="772" class="cardBody">Prefer AD-local standby when available</text>
+  <text x="584" y="792" class="cardBody">Replicates toward the standby region</text>
+
+  <!-- DR -->
+  <g clip-path="url(#clipDr)">
+    <rect x="1120" y="136" width="432" height="700" rx="12" fill="#F8F9FC" stroke="#98A2B3" stroke-width="1.5" stroke-dasharray="8 6"/>
+    <rect x="1120" y="136" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/DedicatedRegion.svg" x="1120" y="136" width="32" height="32" preserveAspectRatio="xMidYMid meet" opacity="0.7"/>
+  </g>
+  <text x="1164" y="156" class="zone">OCI Region &#183; DR (by subscription)</text>
+
+  <rect x="1136" y="176" width="400" height="64" rx="8" fill="#FFFFFF" stroke="#98A2B3" stroke-dasharray="5 4"/>
+  <text x="1152" y="204" class="cardTitle">Standby region</text>
+  <text x="1152" y="224" class="cardBody">Enabled with multi-region subscription</text>
+
+  <g clip-path="url(#clipDrOke)">
+    <rect x="1136" y="256" width="400" height="200" rx="8" fill="#FFFFFF" stroke="#98A2B3" stroke-dasharray="5 4"/>
+    <rect x="1136" y="256" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/ContainerEngineForKubernetes.svg" x="1136" y="256" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="1176" y="276" class="cardTitle">OKE (optional pre-provisioned)</text>
+  <text x="1152" y="308" class="cardBody">Same ns model:</text>
+  <text x="1152" y="328" class="cardBody">fabric-control &#183; SaaS ns &#183; ambient-plane</text>
+  <text x="1152" y="356" class="cardBody">Images + secrets ready</text>
+  <text x="1152" y="376" class="cardBody">Scale to zero or minimal footprint</text>
+  <text x="1152" y="404" class="cardBody">Cloudflare DNS cutover on failover</text>
+  <text x="1152" y="424" class="mono">fabric.abluva.com &#8594; DR NLB</text>
+
+  <g clip-path="url(#clipDrPg)">
+    <rect x="1136" y="472" width="400" height="152" rx="8" fill="#FFFFFF" stroke="#98A2B3" stroke-dasharray="5 4"/>
+    <rect x="1136" y="472" width="32" height="32" fill="none" stroke="#D0D5DD" stroke-width="1"/>
+    <image href="icons/DatabaseSystemDBS.svg" x="1136" y="472" width="32" height="32" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <text x="1176" y="492" class="cardTitle">Postgres backup / standby</text>
+  <text x="1152" y="524" class="cardBody">Cross-region backup or replica</text>
+  <text x="1152" y="544" class="cardBody">Restore or promote on failover</text>
+  <text x="1152" y="572" class="cardBody">Recovery objectives per subscription</text>
+  <text x="1152" y="596" class="cardBody">Secrets provisioned for standby region</text>
+
+  <rect x="1136" y="640" width="400" height="176" rx="8" fill="#FEF3F2" stroke="#DC2626" stroke-dasharray="5 4"/>
+  <text x="1152" y="668" class="cardTitle">Failover sequence</text>
+  <text x="1152" y="696" class="cardBody">1. Promote DR Postgres</text>
+  <text x="1152" y="716" class="cardBody">2. Scale up OKE + Gateway / CP</text>
+  <text x="1152" y="736" class="cardBody">3. Cloudflare: point hostnames at DR NLB</text>
+  <text x="1152" y="756" class="cardBody">4. Agents reconnect automatically</text>
+  <text x="1152" y="776" class="cardBody">Prefer same fabric.abluva.com hostname</text>
+  <text x="1152" y="796" class="cardBody">Documented when multi-region is enabled</text>
+
+  <!-- Short replication: Postgres (right edge) &#8594; DR Postgres via gutter only -->
+  <path d="M1072 732 H1104 V548 H1130" fill="none" stroke="#98A2B3" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowGray)"/>
+  <rect x="1088" y="624" width="72" height="18" rx="3" fill="#FFFFFF" stroke="#D0D5DD"/>
+  <text x="1096" y="637" class="pathLbl">replication</text>
+
+  <!-- Failover below both regions -->
+  <path d="M1136 816 H1104 V844 H900" fill="none" stroke="#DC2626" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowRed)"/>
+  <rect x="920" y="832" width="72" height="18" rx="3" fill="#FFFFFF" stroke="#FECACA"/>
+  <text x="932" y="845" class="pathLblRed">failover</text>
+
+  <text x="48" y="880" class="footer">A-HA &#183; AD HA via regional LBs &#183; region failover via Cloudflare DNS (same hostnames) &#183; multi-region by subscription</text>
+</svg>

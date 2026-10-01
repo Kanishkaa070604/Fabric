@@ -1,0 +1,81 @@
+flowchart TB
+  %% B-DFD — Threat-modeling data flow diagram (Level 1)
+  %% Trust boundaries = dashed subgraphs. Processes = rounded. Stores = cylinder.
+  %% Use with STRIDE on each numbered flow + boundary crossing.
+  %% Companions: B-CTX (placement), B-AUTH (authz decisions), B-LIFE (sequence).
+
+  %% --- External entities ---
+  Admin(["E1 · Tenant admin / UI"])
+  AppC(["E2 · Customer app"])
+  AppP(["E3 · Platform app<br/>discovery / unified-access"])
+  Attk(["E0 · Untrusted Internet<br/>incl. spoofed DNS clients"])
+
+  %% --- Trust boundary: Customer ---
+  subgraph TB_CUST["TB1 · Customer cluster / appliance"]
+    direction TB
+    Agent["P1 · Connect Agent<br/>fabric-edge<br/>enroll · PoP · listeners"]
+    IdStore[("D1 · Agent identity<br/>leaf + key + agent-api.token<br/>K8s Secret or file")]
+  end
+
+  %% --- Trust boundary: Public edge ---
+  subgraph TB_EDGE["TB2 · Public edge · untrusted until mTLS"]
+    direction TB
+    CF(["E4 · Cloudflare DNS<br/>fabric A · connect NS/CNAME"])
+    NLB["P2 · Fabric NLB<br/>:8443 Agent · :8444 inbound<br/>L4 · PROXY off"]
+  end
+
+  %% --- Trust boundary: Platform fabric-control ---
+  subgraph TB_FC["TB3 · Platform fabric-control · private OKE"]
+    direction TB
+    GT["P3 · Ghostunnel<br/>TLS terminate · Intermediate CA"]
+    GW["P4 · Gateway<br/>yamux · StreamOpen authz · relay"]
+  end
+
+  %% --- Trust boundary: Platform SaaS ns ---
+  subgraph TB_SAAS["TB4 · Platform SaaS namespace · private OKE"]
+    direction TB
+    CP["P5 · Control Plane<br/>enroll · approve · regs · authz ctx"]
+    DNSW["P6 · fabric-dns-webhook<br/>OCI patchZoneRecords"]
+    Disc["P7 · discovery / APIs<br/>A1 in-cluster consumers"]
+  end
+
+  %% --- Trust boundary: Managed platform data ---
+  subgraph TB_DATA["TB5 · Platform managed data · private"]
+    direction TB
+    PG[("D2 · Managed Postgres<br/>ablv_tenant_connect<br/>ablv_agents · ablv_registrations")]
+    Vault[("D3 · OCI Vault / Access API<br/>platform + TLS secrets")]
+    ODNS[("D4 · OCI DNS zone<br/>connect.* Path B records")]
+  end
+
+  %% --- Data flows (numbered for STRIDE worksheets) ---
+  Admin -->|"DF1 HTTPS · bootstrap / approve / regs<br/>Bearer + break-glass"| CP
+  Agent -->|"DF2 HTTPS · enroll CSR · PoP · watch<br/>leaf PoP / Agent API bearer"| CP
+  Agent --- IdStore
+  Agent -->|"DF3 mTLS TCP :8443<br/>Agent leaf · yamux"| NLB
+  Attk -.->|"DF0 attack surface<br/>probe NLB / DNS / CP URL"| NLB
+  Attk -.-> CF
+  CF -->|"DF4 DNS answers<br/>A/CNAME → NLB VIP"| NLB
+  NLB --> GT
+  GT --> GW
+  AppC -->|"DF5 cluster dial<br/>connect-agent.svc:port<br/>StreamOpen claim"| Agent
+  Agent -->|"DF6 StreamOpen on tunnel<br/>tenant_id + registration_id"| GW
+  GW -->|"DF7 FetchAuthzContext<br/>cert FP + tenant + reg"| CP
+  CP -.->|"DF8 revoke / desired-state push<br/>:9090"| GW
+  GW -->|"DF9 dial dest after ACCEPTED<br/>ztunnel L4 on Platform"| Disc
+  AppP -->|"DF10 inbound TLS :8444<br/>SNI reg.tenant.connect.*"| NLB
+  GW -->|"DF11 AgentDial on tunnel<br/>customer host:port"| Agent
+  Agent -->|"DF12 local dial"| AppC
+  CP -->|"DF13 CRUD + heartbeats"| PG
+  CP -->|"DF14 secret material"| Vault
+  CP -->|"DF15 desired DNS records"| DNSW
+  DNSW -->|"DF16 upsert/delete<br/>instance principal"| ODNS
+  Disc -.->|"DF17 A1 · same-cluster<br/>no Gateway"| AppP
+
+  classDef entity fill:#FFFAEB,stroke:#F79009,color:#344054
+  classDef process fill:#FFFFFF,stroke:#674EA7,color:#344054
+  classDef store fill:#EFF8FF,stroke:#2E90FA,color:#344054
+  classDef attack fill:#FEF3F2,stroke:#DC2626,color:#344054
+  class Admin,AppC,AppP,CF entity
+  class Attk attack
+  class Agent,NLB,GT,GW,CP,DNSW,Disc process
+  class IdStore,PG,Vault,ODNS store

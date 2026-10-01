@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" agent="Abluva Fabric docs" version="22.1.0" type="device">
+  <diagram id="B-DFD" name="B-DFD Threat model">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="8" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0" background="#FCFCFD">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="B-DFD · Mesh threat-modeling data flow (Level 1)&amp;#xa;Trust boundaries TB1–TB5 · numbered flows DF0–DF17 for STRIDE worksheets" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#674EA7;strokeColor=#674EA7;fontColor=#FFFFFF;fontSize=16;fontStyle=1;align=left;verticalAlign=middle;spacingLeft=24;strokeWidth=0;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="1600" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="E0" value="E0 · Untrusted Internet&amp;#xa;(attack surface)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FEF3F2;strokeColor=#DC2626;fontColor=#344054;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="160" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="E1" value="E1 · Tenant admin / UI" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFAEB;strokeColor=#F79009;fontColor=#344054;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="240" y="80" width="160" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="E2" value="E2 · Customer app" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFAEB;strokeColor=#F79009;fontColor=#344054;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="40" y="420" width="140" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="E3" value="E3 · Platform app&amp;#xa;discovery / APIs" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFAEB;strokeColor=#F79009;fontColor=#344054;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="1400" y="420" width="160" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="E4" value="E4 · Cloudflare DNS&amp;#xa;fabric A · connect NS/CNAME" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFAEB;strokeColor=#F79009;fontColor=#344054;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="440" y="80" width="200" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="TB1" value="TB1 · Customer cluster / appliance (fabric-edge)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#98A2B3;dashed=1;dashPattern=8 6;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;fontSize=11;fontStyle=1;fontColor=#667085;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="360" height="240" as="geometry"/>
+        </mxCell>
+        <mxCell id="P1" value="P1 · Connect Agent&amp;#xa;enroll · PoP · listeners" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#674EA7;fontColor=#344054;fontSize=10;fontStyle=1;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="80" y="210" width="160" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="D1" value="D1 · Agent identity&amp;#xa;leaf + key + API token" style="shape=partialRectangle;whiteSpace=wrap;html=1;left=0;right=0;fillColor=#EFF8FF;strokeColor=#2E90FA;fontColor=#344054;fontSize=10;fontStyle=0;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="260" y="220" width="120" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="TB2" value="TB2 · Public edge · untrusted until mTLS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#98A2B3;dashed=1;dashPattern=8 6;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;fontSize=11;fontStyle=1;fontColor=#667085;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="440" y="160" width="320" height="240" as="geometry"/>
+        </mxCell>
+        <mxCell id="P2" value="P2 · Mesh NLB&amp;#xa;:8443 / :8444 · PROXY off" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#674EA7;fontColor=#344054;fontSize=10;fontStyle=1;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="500" y="230" width="200" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="TB3" value="TB3 · fabric-control · private OKE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#98A2B3;dashed=1;dashPattern=8 6;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;fontSize=11;fontStyle=1;fontColor=#667085;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="800" y="160" width="340" height="240" as="geometry"/>
+        </mxCell>
+        <mxCell id="P3" value="P3 · Ghostunnel&amp;#xa;TLS · Intermediate CA" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#674EA7;fontColor=#344054;fontSize=10;fontStyle=1;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="830" y="200" width="130" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="P4" value="P4 · Gateway&amp;#xa;authz · yamux relay" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#674EA7;fontColor=#344054;fontSize=10;fontStyle=1;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="980" y="280" width="140" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="TB4" value="TB4 · SaaS namespace · private OKE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#98A2B3;dashed=1;dashPattern=8 6;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;fontSize=11;fontStyle=1;fontColor=#667085;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="800" y="440" width="520" height="280" as="geometry"/>
+        </mxCell>
+        <mxCell id="P5" value="P5 · Control Plane&amp;#xa;enroll · approve · authz ctx" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#674EA7;fontColor=#344054;fontSize=10;fontStyle=1;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="830" y="490" width="160" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="P6" value="P6 · dns-webhook&amp;#xa;OCI DNS upsert" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#674EA7;fontColor=#344054;fontSize=10;fontStyle=1;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="490" width="140" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="P7" value="P7 · discovery / APIs&amp;#xa;A1 consumers" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#674EA7;fontColor=#344054;fontSize=10;fontStyle=1;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="560" width="140" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="TB5" value="TB5 · Platform managed data · private" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#98A2B3;dashed=1;dashPattern=8 6;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;fontSize=11;fontStyle=1;fontColor=#667085;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="40" y="560" width="720" height="220" as="geometry"/>
+        </mxCell>
+        <mxCell id="D2" value="D2 · Managed Postgres&amp;#xa;tenant_connect · agents · regs" style="shape=partialRectangle;whiteSpace=wrap;html=1;left=0;right=0;fillColor=#EFF8FF;strokeColor=#2E90FA;fontColor=#344054;fontSize=10;fontStyle=0;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="70" y="620" width="200" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="D3" value="D3 · OCI Vault / Access API&amp;#xa;platform + TLS secrets" style="shape=partialRectangle;whiteSpace=wrap;html=1;left=0;right=0;fillColor=#EFF8FF;strokeColor=#2E90FA;fontColor=#344054;fontSize=10;fontStyle=0;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="300" y="620" width="200" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="D4" value="D4 · OCI DNS zone&amp;#xa;connect.* Path B" style="shape=partialRectangle;whiteSpace=wrap;html=1;left=0;right=0;fillColor=#EFF8FF;strokeColor=#2E90FA;fontColor=#344054;fontSize=10;fontStyle=0;align=center;verticalAlign=middle;strokeWidth=1.5;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="530" y="620" width="200" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg" value="&lt;b&gt;Notation&lt;/b&gt;&amp;#xa;Rectangle = external entity&amp;#xa;Ellipse = process&amp;#xa;Open bar = data store&amp;#xa;Dashed box = trust boundary&amp;#xa;Solid arrow = data flow&amp;#xa;Dashed red = attack surface&amp;#xa;&amp;#xa;&lt;b&gt;STRIDE focus (start here)&lt;/b&gt;&amp;#xa;DF0/DF3/DF10 — Spoofing, Tampering at edge&amp;#xa;DF1/DF2 — Elevation via tokens/bootstrap&amp;#xa;DF6/DF7 — Authz bypass (see B-AUTH)&amp;#xa;DF13/D2 — Info disclosure / integrity&amp;#xa;DF16 — DNS poisoning / IAM abuse&amp;#xa;D1 — Secret theft on customer node" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCFCFD;strokeColor=#D0D5DD;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;fontSize=10;fontColor=#344054;strokeWidth=1;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="1360" y="80" width="220" height="320" as="geometry"/>
+        </mxCell>
+        <mxCell id="df0a" value="DF0 probe NLB" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#DC2626;strokeWidth=1.5;dashed=1;dashPattern=6 4;endArrow=block;endFill=1;fontSize=9;fontColor=#DC2626;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="E0" target="P2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df0b" value="DF0 DNS abuse" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#DC2626;strokeWidth=1.5;dashed=1;dashPattern=6 4;endArrow=block;endFill=1;fontSize=9;fontColor=#DC2626;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="E0" target="E4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df1" value="DF1 HTTPS admin APIs" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="E1" target="P5">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df2" value="DF2 enroll / PoP / watch" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P1" target="P5">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df3" value="DF3 mTLS :8443" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P1" target="P2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df4" value="DF4 DNS → VIP" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="E4" target="P2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df_nlb_gt" value="TCP to Ghostunnel" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P2" target="P3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df_gt_gw" value="Unix / local" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P3" target="P4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df5" value="DF5 StreamOpen dial" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="E2" target="P1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df6" value="DF6 StreamOpen on tunnel" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P1" target="P4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df7" value="DF7 FetchAuthzContext" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P4" target="P5">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df8" value="DF8 revoke push" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;dashed=1;dashPattern=6 4;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P5" target="P4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df9" value="DF9 dial after ACCEPTED" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P4" target="P7">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df10" value="DF10 inbound :8444 SNI" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="E3" target="P2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df11" value="DF11 AgentDial" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P4" target="P1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df12" value="DF12 local dial" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P1" target="E2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df13" value="DF13 CRUD / heartbeats" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P5" target="D2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df14" value="DF14 secrets" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P5" target="D3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df15" value="DF15 desired DNS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P5" target="P6">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df16" value="DF16 upsert IAM" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P6" target="D4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df17" value="DF17 A1 in-cluster" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;dashed=1;dashPattern=6 4;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P7" target="E3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="df_id" value="read/write identity" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#674EA7;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=9;fontColor=#674EA7;labelBackgroundColor=#FFFFFF;fontFamily=Helvetica;" edge="1" parent="1" source="P1" target="D1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="foot" value="Companions: B-CTX (placement) · B-AUTH (authz tree) · B-LIFE (sequence) · A-OCI (subnets). Fail-closed: CP never authorizes bytes; Gateway is sole stream yes/no; Agent never authorizes." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=10;fontColor=#667085;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="40" y="800" width="1520" height="36" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

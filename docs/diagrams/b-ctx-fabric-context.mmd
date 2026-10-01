@@ -1,0 +1,37 @@
+flowchart LR
+  %% B-CTX — Fabric context & deployment (topology twin)
+  %% Canonical visual: b-ctx-fabric-context.svg
+
+  CF["Cloudflare DNS<br/>A: fabric.abluva.com → Fabric NLB<br/>connect: Path C CNAME OR Path B NS<br/>pick one"]
+
+  subgraph PLAT["Abluva Platform · OCI"]
+    NLB["Fabric NLB<br/>:8443 Agent · :8444 inbound<br/>PROXY off"]
+    WEB["Flexible LB web<br/>out of band"]
+    subgraph OKE["SaaS OKE"]
+      GW["fabric-control<br/>Gateway + Ghostunnel"]
+      CP["SaaS ns<br/>CP + discovery + APIs"]
+      AMB["ambient-plane<br/>ztunnel Platform-only"]
+      TEN["tenant-* optional<br/>SaaS-hosted apps"]
+    end
+  end
+
+  subgraph CUST["Customer K8s / k3s"]
+    FE["fabric-edge<br/>Connect Agent"]
+    APP["Customer apps"]
+  end
+
+  CF --> NLB
+  NLB -->|mTLS tunnel| GW
+  FE -->|dial fabric.abluva.com:8443| NLB
+  APP -->|connect-agent.svc:port| FE
+  CP -.->|config / revoke| GW
+  AMB -.->|L4 mTLS Platform pods| CP
+
+  classDef brand fill:#FFFFFF,stroke:#674EA7,color:#344054
+  classDef public fill:#EFF8FF,stroke:#2E90FA,color:#344054
+  classDef ext fill:#FFFAEB,stroke:#F79009,color:#344054
+  classDef mute fill:#FFFFFF,stroke:#D0D5DD,stroke-dasharray: 5 4,color:#667085
+  class CF,AMB ext
+  class NLB public
+  class GW,CP,FE brand
+  class WEB,TEN mute

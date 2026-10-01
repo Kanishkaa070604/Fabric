@@ -1,0 +1,41 @@
+# PeerAuthentication PERMISSIVE — SaaS (and optional fabric-control) namespaces
+#
+# Why: fabric-gateway stays Ambient-opted-out (Ghostunnel hostPort). It dials
+# Platform Services with plaintext ClusterIP. If Ambient destinations are
+# STRICT, those dials fail. PERMISSIVE allows:
+#   - Gateway (non-mesh) → SaaS / CP  = plaintext OK
+#   - SaaS ↔ SaaS (both in mesh)      = ztunnel mTLS (A1)
+#
+# Apply AFTER Ambient enroll; BEFORE or WITH re-enabling Ambient on Access /
+# control-server (removing dataplane-mode=none opt-outs).
+#
+#   NS=3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+#   sed "s/SAAS_NAMESPACE/$NS/g" peer-authentication-permissive.yaml | kubectl apply -f -
+#
+# Keep fabric-gateway opted out (deploy/gateway/deployment.yaml).
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: fabric-saas-permissive
+  namespace: SAAS_NAMESPACE
+  labels:
+    app.kubernetes.io/part-of: fabric
+    fabric.abluva.io/role: ambient-hybrid
+spec:
+  mtls:
+    mode: PERMISSIVE
+---
+# Optional: same mode in fabric-control if non-mesh callers dial Services there
+# (e.g. debug pods). Gateway pods themselves remain dataplane-mode=none.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: fabric-control-permissive
+  namespace: fabric-control
+  labels:
+    app.kubernetes.io/part-of: fabric
+    fabric.abluva.io/role: ambient-hybrid
+spec:
+  mtls:
+    mode: PERMISSIVE

@@ -1,0 +1,54 @@
+flowchart TB
+  %% B-AUTH — Control vs data plane + authz
+  %% Order matches gateway AuthorizeStream + handler mapAuthzError (code wins)
+
+  subgraph ROLES["Two roles · one backend"]
+    CP["Control Plane<br/>SaaS namespace<br/>config / desired-state only"]
+    GW["Gateway<br/>fabric-control<br/>sole stream yes / no"]
+  end
+
+  DNS["DNS reconciler<br/>emits inbound names while Active<br/>UUID + friendly slug"]
+  CP --> DNS
+
+  SO["StreamOpen / inbound SNI<br/>key = tenant_id + registration_id"]
+
+  SO --> FETCH["FetchAuthzContext<br/>tenant-scoped cert match + reg + quotas + Agents"]
+  FETCH -->|lookup / CP down| RETRY1["RETRY_LATER"]
+  FETCH -->|ok| APPR{"AgentApproved?<br/>Connected or Degraded only"}
+
+  APPR -->|no — PendingApproval / unknown FP| DENY1["UNAUTHORIZED"]
+  APPR -->|yes| REV{"Cert FP revoked?"}
+  REV -->|yes| DENY2["UNAUTHORIZED"]
+  REV -->|no| SUSP{"Tenant suspended?"}
+  SUSP -->|yes| DENY3["UNAUTHORIZED"]
+  SUSP -->|no| Q{"Concurrent stream cap?"}
+  Q -->|at / over cap| DENY4["UNAUTHORIZED<br/>quota concurrent"]
+  Q -->|ok| REG{"Registration usable?<br/>exists · Active · type match"}
+  REG -->|missing| NF["NOT_FOUND"]
+  REG -->|not Active / type mismatch| DENY5["UNAUTHORIZED"]
+  REG -->|yes| ADAPT["Destination adapter<br/>DIRECT_ENDPOINT / PLATFORM_CONNECTOR / CONNECT_AGENT"]
+  ADAPT -->|no eligible agent / dial fail| UNAVAIL["DESTINATION_UNAVAILABLE"]
+  ADAPT -->|ok| RES["ReserveStream<br/>rate vs concurrent"]
+  RES -->|rate exceeded| RETRY2["RETRY_LATER"]
+  RES -->|concurrent exceeded| DENY6["UNAUTHORIZED"]
+  RES -->|ok| OK["ACCEPTED<br/>after successful dial<br/>relay + audit correlation_id"]
+
+  CP -.->|desired state · revoke push| GW
+
+  subgraph FAIL["Fail-closed ownership"]
+    N1["CP never authorizes a byte stream"]
+    N2["Agent never authorizes"]
+    N3["waypoint never authorizes<br/>workload_evidence is audit-only"]
+    N4["Inbound: shorter tree — no presenting-agent approve/revoke;<br/>pending Agents fail as empty eligible → DESTINATION_UNAVAILABLE"]
+  end
+
+  classDef brand fill:#FFFFFF,stroke:#674EA7,color:#344054
+  classDef ok fill:#ECFDF3,stroke:#16A34A,color:#344054
+  classDef bad fill:#FEF3F2,stroke:#DC2626,color:#344054
+  classDef wait fill:#FFFAEB,stroke:#F79009,color:#344054
+  classDef neut fill:#FCFCFD,stroke:#D0D5DD,color:#344054
+  class CP,GW,SO brand
+  class OK ok
+  class DENY1,DENY2,DENY3,DENY4,DENY5,DENY6,UNAVAIL,NF bad
+  class RETRY1,RETRY2 wait
+  class DNS,FETCH,ADAPT,RES,N1,N2,N3,N4 neut

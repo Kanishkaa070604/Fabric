@@ -1,0 +1,14 @@
+{
+  "name": "@abluva/fabric-dns-webhook-oci",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OCI DNS Zone webhook receiver for Fabric control-plane DNS reconciler",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "oci-common": "^2.91.0",
+    "oci-dns": "^2.91.0"
+  }
+}

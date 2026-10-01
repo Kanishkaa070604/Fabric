@@ -1,0 +1,29 @@
+.venv/
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+coverage/
+.idea/
+.vscode/
+gateway/bin/
+connect-agent/bin/
+**/__pycache__/
+deploy/local/certs/
+
+# Not part of Fabric networking upload (Secure Pack / lease)
+securepack-lease/
+docs/securepack-vectors/
+docs/Fabric_Secure_Pack_Canonical_Encoding_v1.md
+docs/Fabric_Secure_Pack_Distribution_Spec_v1.4.md
+docs/Fabric_and_Secure_Pack_E2E_Verification_Plan_v1.1.md
+deploy/local/smoke-pack.sh
+deploy/local/smoke-rotate-revoke.sh
+
+# Built binaries
+connect-agent/connect-agent
+gateway/gateway
+*.exe

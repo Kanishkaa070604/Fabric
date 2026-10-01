@@ -1,0 +1,44 @@
+# Byte-compatible StreamOpen contract (Level 2 §J).
+# Serialization may be protobuf or length-prefixed JSON in v1 scaffold;
+# field semantics are frozen here.
+
+syntax = "proto3";
+
+package connectivity.v1;
+
+option go_package = "github.com/abluva/fabric/connectivity-proto/gen/go/connectivity/v1;connectivityv1";
+
+enum ConnectivityType {
+  CONNECTIVITY_TYPE_UNSPECIFIED = 0;
+  SERVICE = 1;
+  RESOURCE = 2;
+}
+
+message StreamOpen {
+  string tenant_id = 1;
+  string registration_id = 2;
+  ConnectivityType connectivity_type = 3;
+  bytes workload_evidence = 4; // optional; opaque; audit only in v1
+  uint32 protocol_version = 5;
+}
+
+// L2 §J.3 defines exactly ACCEPTED | UNAUTHORIZED | NOT_FOUND |
+// DESTINATION_UNAVAILABLE | RETRY_LATER — no PENDING_APPROVAL value.
+// "Agent enrolled but not approved" (G-BOOT-1) and "unsupported
+// protocol_version" (§J.4) are both UNAUTHORIZED with a specific `reason`
+// string, per §G.2's "specific rejection reason, not a generic denial" rule.
+enum StreamOpenOutcome {
+  OUTCOME_UNSPECIFIED = 0;
+  ACCEPTED = 1;
+  UNAUTHORIZED = 2;
+  NOT_FOUND = 3;
+  DESTINATION_UNAVAILABLE = 4;
+  RETRY_LATER = 5;
+  reserved 6; // formerly PENDING_APPROVAL; removed to match §J.3 exactly
+}
+
+message StreamOpenResult {
+  StreamOpenOutcome outcome = 1;
+  string reason = 2; // specific, never generic
+  string correlation_id = 3;
+}

@@ -1,0 +1,36 @@
+# Example Ambient waypoint for a Platform Service namespace (optional L7).
+# Spec §5.4 / §8: A1, A2 (after Gateway), A3 (before Gateway) only.
+# Do NOT deploy waypoints for Resource/DB namespaces (B1–B4).
+#
+# Prefer: ./waypoint-apply.sh 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+# This file is a fallback when istioctl is unavailable; adjust to your
+# Istio / Gateway API version if the CRD schema differs.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: waypoint
+  namespace: NAMESPACE_PLACEHOLDER
+  labels:
+    istio.io/waypoint-for: service
+  annotations:
+    ablv.mesh/pathway-scope: "A1,A2,A3"
+spec:
+  gatewayClassName: istio-waypoint
+  listeners:
+    - name: mesh
+      port: 15008
+      protocol: HBONE
+---
+# Soft signal: services in this namespace may use the waypoint for L7.
+# Exact capture semantics depend on Istio version; follow platform Ambient docs
+# if you need per-service opt-in instead of namespace-default.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ablv-fabric-waypoint-notes
+  namespace: NAMESPACE_PLACEHOLDER
+data:
+  readme: |
+    Waypoint provides optional HTTP/gRPC retries, timeouts, circuit breaking,
+    and L7 authz INSIDE the Platform mesh. It never replaces Gateway
+    tenant/registration authorization (ADR-002).

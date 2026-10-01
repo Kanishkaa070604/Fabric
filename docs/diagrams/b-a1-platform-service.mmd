@@ -1,0 +1,27 @@
+flowchart LR
+  %% B-A1 — Platform service → Platform service (topology twin)
+  %% Render: Mermaid flowchart LR. Canonical visual: b-a1-platform-service.svg
+
+  subgraph OKE["Platform OKE · private · Ambient enrolled"]
+    subgraph AMB["ambient-plane"]
+      Z1["ztunnel L4 mTLS"]
+      Z2["ztunnel L4 mTLS"]
+    end
+    subgraph SAAS["SaaS namespace"]
+      D["discovery<br/>discovery.&lt;saas-ns&gt;.svc"]
+      W["waypoint optional<br/>L7 HTTP/gRPC"]
+      U["unified-access<br/>unified-access.&lt;saas-ns&gt;.svc"]
+    end
+  end
+
+  D -->|plain K8s DNS| Z1
+  Z1 --> W
+  W --> Z2
+  Z2 --> U
+
+  classDef brand fill:#FFFFFF,stroke:#674EA7,color:#344054
+  classDef secure fill:#ECFDF3,stroke:#16A34A,color:#344054
+  classDef opt fill:#FFFFFF,stroke:#D0D5DD,stroke-dasharray: 5 4,color:#344054
+  class D,U brand
+  class Z1,Z2 secure
+  class W opt

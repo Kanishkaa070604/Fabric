@@ -1,0 +1,25 @@
+# Build from repo root:
+#   docker buildx build --platform linux/amd64 \
+#     -t phx.ocir.io/axsfgj15p1je/connect-agent:v1 \
+#     -f deploy/local/Dockerfile.connect-agent --push .
+#
+# Tip: build on an amd64 host (CloudShell / amd64 CI). Building
+# linux/amd64 on Apple Silicon uses QEMU and is much slower.
+FROM golang:1.22-bookworm AS build
+WORKDIR /src
+
+# Cache deps: only invalidate when go.mod / go.sum change
+COPY securepack-lease/go.mod securepack-lease/go.sum /src/securepack-lease/
+COPY connect-agent/go.mod connect-agent/go.sum /src/connect-agent/
+WORKDIR /src/connect-agent
+RUN go mod download
+
+# Copy sources after deps so code edits reuse the download layer
+COPY securepack-lease/ /src/securepack-lease/
+COPY connect-agent/ /src/connect-agent/
+RUN CGO_ENABLED=0 GOOS=linux go build -o /connect-agent ./cmd/connect-agent
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /connect-agent /connect-agent
+USER nonroot:nonroot
+ENTRYPOINT ["/connect-agent"]

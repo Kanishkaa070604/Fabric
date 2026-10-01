@@ -1,0 +1,62 @@
+# Ambient enrollment notes — SaaS / fabric-control
+#
+# DO NOT `kubectl apply -f` this file (comments + patch examples only).
+#
+# Prerequisite for mesh HTTP APIs: PeerAuthentication PERMISSIVE
+#   (peer-authentication-permissive.yaml) so non-mesh fabric-gateway can dial
+#   in-mesh Services with plaintext.
+#
+# ---------------------------------------------------------------------------
+# Still OPTED OUT / not in Ambient (keep this way)
+# ---------------------------------------------------------------------------
+#
+# 1) fabric-gateway  (namespace: fabric-control)
+#    Why: Ghostunnel terminates Agent mTLS on hostPort 8443/8444. Ambient
+#    redirection → TCP OK then TLS RST on the NLB; Agent never tunnel_ready.
+#    YAML (baked in): deploy/gateway/deployment.yaml
+#      labels:
+#        istio.io/dataplane-mode: none
+#      annotations:
+#        ambient.istio.io/redirection: disabled
+#
+#    Re-apply opt-out if someone removed it:
+#      kubectl -n fabric-control patch deploy fabric-gateway --type=strategic -p \
+#        '{"spec":{"template":{"metadata":{"labels":{"istio.io/dataplane-mode":"none"},"annotations":{"ambient.istio.io/redirection":"disabled"}}}}}'
+#
+# 2) fabric-dns-webhook  (SaaS ns) — not an explicit opt-out label
+#    Why: hostNetwork: true (OCI instance principal / IMDS). Ambient CNI does
+#    not set redirection=enabled. MODE/REDIR stay empty — expected.
+#    YAML: deploy/platform/oci/dns-webhook/deployment.yaml
+#
+# Do NOT enroll (1). Do NOT force Ambient labels onto (2) without dropping
+# hostNetwork (would break OCI DNS auth).
+#
+# ---------------------------------------------------------------------------
+# Re-enrolled into Ambient (opt-outs removed; ns stays ambient)
+# ---------------------------------------------------------------------------
+#   unified-access-service, control-server, control-client,
+#   pricing-manager-svc, fabric-control-plane, secure-data-hub
+#
+#   NS=3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
+#   for D in unified-access-service control-server control-client pricing-manager-svc fabric-control-plane secure-data-hub; do
+#     kubectl -n "$NS" patch deploy "$D" --type=json -p '[
+#       {"op":"remove","path":"/spec/template/metadata/labels/istio.io~1dataplane-mode"},
+#       {"op":"remove","path":"/spec/template/metadata/annotations/ambient.istio.io~1redirection"}
+#     ]' 2>/dev/null || \
+#     kubectl -n "$NS" patch deploy "$D" --type=json -p '[
+#       {"op":"remove","path":"/spec/template/metadata/annotations/ambient.istio.io~1redirection"}
+#     ]' 2>/dev/null || true
+#   done
+#
+# Confirm:
+#   kubectl -n "$NS" get pods -o custom-columns=\
+#     NAME:.metadata.name,MODE:.metadata.labels.istio\\.io/dataplane-mode,REDIR:.metadata.annotations.ambient\\.istio\\.io/redirection
+#   kubectl -n fabric-control get pods -o custom-columns=\
+#     NAME:.metadata.name,MODE:.metadata.labels.istio\\.io/dataplane-mode,REDIR:.metadata.annotations.ambient\\.istio\\.io/redirection
+# Expect: SaaS apps REDIR=enabled; fabric-gateway MODE=none REDIR=disabled;
+#         fabric-dns-webhook MODE/REDIR empty (hostNetwork).
+#
+# YAML sources (opt-outs removed in fabric.v3):
+#   deploy/control-plane/deployment.yaml     (fabric-control-plane)
+#   deploy/control-plane/control-plane.yaml  (control-server, control-client)
+# Product Access / pricing / SDH: abluva-infra-api k8s/ (strip opt-outs there).
