@@ -270,38 +270,135 @@ For other customer services (e.g. data-privacy), use the matching `host:port` fr
 
 ## Troubleshooting
 
-### Create registrations stays disabled
+For errors after `tenant-start.sh` / `install.sh`, start here. Replace `$NS` with your
+`TENANT_NAMESPACE` (or `fabric-edge` on the VM appliance).
 
-**Cause**: No Agent is Connected yet.
+```bash
+kubectl -n "$NS" get pods
+kubectl -n "$NS" describe pod -l app=connect-agent | tail -40
+kubectl -n "$NS" logs -l app=connect-agent --tail=80
+kubectl -n "$NS" describe pod -l tier=agent | tail -40
+```
 
-**Fix**: Wait until Step 7 shows Connected pods / Connected status in the UI, then retry **Create**.
+### Create registrations stays disabled / Create greyed out
 
-### Agent pods CrashLoop or Pending
+**Cause**: Connect Agent is not **Connected** yet (still Connecting, PendingApproval, or enroll failed).
 
-**Cause**: Missing bootstrap token, wrong CA, or nodes cannot reach the platform gateway / control plane.
+**Fix**:
+1. `kubectl -n "$NS" get pods` — `connect-agent` must be Running 1/1.
+2. In UI → Connect Agent: **Approve** if PendingApproval; wait for **Connected**.
+3. Then **Add customer registrations** → fill host/port → **Create**.
 
-**Fix**: Confirm `BOOTSTRAP_TOKEN` and `ca.crt`, and that `FABRIC_GATEWAY_ADDRESS` / `FABRIC_CONTROL_PLANE_URL` from the Install file are reachable from the cluster nodes.
+### `ImagePullBackOff` / `ErrImagePull` — wrong CPU architecture
 
-### Launcher cannot reach control-server
+**Symptom**: `no match for platform in manifest` or `no matching manifest for linux/amd64`.
 
-**Cause**: `INFRA_BASE_URL` still points at SaaS in-cluster DNS, or wrong Connect Agent listener port.
+**Cause**: Image was built on Apple Silicon (arm64) but the customer node is **amd64** (typical VM/k3s).
 
-**Fix**: Use `http://connect-agent.<ns>.svc.cluster.local:<port>` where `<port>` is the `control-server` PLATFORM registration listener from the `connect-agent` Service annotation. Patch the Deployment if the port was unknown at install time.
+**Fix**: Rebuild and push with an explicit platform, then delete the pod:
 
-### Agent image pull error
+```bash
+docker buildx build --platform linux/amd64 -t phx.ocir.io/axsfgj15p1je/connect-agent:v2 \
+  -f deploy/local/Dockerfile.connect-agent --push <fabric-repo-root>
+docker buildx imagetools inspect phx.ocir.io/axsfgj15p1je/connect-agent:v2 | grep -i platform
+# must show linux/amd64
 
-**Cause**: Your cluster can't reach the container registry.
+kubectl -n "$NS" delete pod -l app=connect-agent
+```
 
-**Fix**: Contact Abluva support for alternative image delivery or configure registry trust.
+Same for launcher (`phx.ocir.io/axsfgj15p1je/launcher:<tag>`). A plain `docker build` on a Mac
+defaults to **arm64** — do **not** use that for customer VMs.
 
-### Request hangs (timeout)
+### `ImagePullBackOff` — tag not found / unauthorized
 
-**Cause**: Egress blocked to the platform NLB or control plane, or NetworkPolicy too tight for your workload path.
+**Symptom**: `manifest unknown` or `pull access denied`.
 
-**Fix**: Verify outbound TCP to gateway **8443** and control-plane HTTPS. Contact Abluva support if platform-side ACLs are suspected.
+**Fix**: Confirm the tag exists in OCIR; use a known-good tag (e.g. `launcher:3`); add an
+`imagePullSecrets` / `ocir-secret` in `$NS` if the repo is private.
+
+### Connect Agent CrashLoop — `identity_unavailable` / enroll timeout
+
+**Symptom** (logs):
+`Post "http://fabric.abluva.com:8080/v1/agents/enroll": context deadline exceeded`
+
+**Cause**: Customer node cannot reach public Fabric control plane **:8080** (NLB / NSG /
+Service type). Gateway **:8443** can still work.
+
+**Check from the customer host**:
+
+```bash
+nc -zv fabric.abluva.com 8443    # should succeed
+nc -zv fabric.abluva.com 8080    # must succeed for enroll
+curl -sf --max-time 5 http://fabric.abluva.com:8080/healthz
+```
+
+**Platform fix** (ops): `fabric-control-plane` Service must be **NodePort** (pinned
+`32528` in `deploy/control-plane/deployment.yaml`), NLB listener **TCP 8080** → that
+NodePort, NSG/SL allow 8080. ClusterIP-only Service breaks public Agent enroll.
+
+### Connect Agent CrashLoop — bad bootstrap / CA
+
+**Cause**: Wrong or expired `BOOTSTRAP_TOKEN`, or `ca.crt` is not the Gateway trust CA.
+
+**Fix**: Re-download CA + generate a new token on the Connect Agent tab; update
+`tenant-start.env` / Secrets; re-run the installer.
+
+### `git pull` blocked by local edits
+
+**Symptom**: `Your local changes to the following files would be overwritten by merge`.
+
+**Fix** (keep remote versions):
+
+```bash
+git checkout -- connect-agent/kubernetes/tenant-start.sh agent/agent-deployment.yaml
+git pull
+```
+
+### Launcher Running but cannot reach control-server
+
+**Cause**: `INFRA_BASE_URL` still has `<control-server-listen-port>`, or wrong port.
+
+**Fix**:
+1. Prefer Connect UI Install → **Refresh** after Agent Connected →
+   `CONTROL_SERVER_LISTEN_PORT` (Fabric `control-server.agent_listen_port`).
+2. Or from the cluster:
+   ```bash
+   kubectl -n "$NS" get svc connect-agent \
+     -o jsonpath='{.metadata.annotations.fabric\.abluva\.io/registration-ports}{"\n"}'
+   ```
+   Use the port for PLATFORM reg `display_name=control-server`, set
+   `CONTROL_SERVER_LISTEN_PORT`, re-run `tenant-start.sh` (or patch Deployment/agent).
+
+Do **not** use `http://control-server-svc.<saas-ns>.svc…` from the customer cluster.
+
+### Registration Create fails / Platform dial `destination_unavailable`
+
+**Cause**: Wrong host (used display name instead of Service name), Service missing, or
+Agent not Connected / probe not reachable.
+
+**Fix**: Register `agent-launcher` with `host=agent-svc` `port=5004` only after
+`agent-svc` exists. Wait for Connect status Connected; confirm
+`observed.reachable=true` before relying on Platform→Customer dials.
+
+### Platform resource / launcher create hangs
+
+**Cause**: Resource `base_url` used in-cluster `agent-svc` instead of the Connect-tab
+`host:port` (`*.connect.abluva.com:8444`), or inbound **:8444** / NetPol blocked.
+
+**Fix**: Use `https://` + host:port from the Connect tab after Create; endpoint
+`api/v1/launcher/create`. Confirm Gateway inbound path from platform ops if needed.
+
+### Cloud Shell cannot curl `fabric.abluva.com:8080`
+
+**Cause**: Public NLB :8080 not reachable from Cloud Shell (NSG) — normal in some setups.
+
+**Fix**: Use in-cluster access:
+`kubectl -n <saas-ns> port-forward svc/fabric-control-plane 8080:8080`
+or `kubectl exec` from a pod in that namespace.
 
 ---
 
 ## Support
 
-If you encounter issues, contact Abluva support.
+If you encounter issues not covered above, contact Abluva support with:
+`kubectl -n "$NS" get pods`, Connect Agent logs, and the Install env (redact tokens).
