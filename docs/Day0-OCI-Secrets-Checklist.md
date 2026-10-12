@@ -209,7 +209,7 @@ cd ~/path/to/fabric.v3/deploy/platform   # directory that contains both .sh file
 | [3/9] | `fabric-cert-expiry-webhook` | From `CERT_EXPIRY_WEBHOOK_URL` (skipped if unset) |
 | [4/9] | `fabric-dns-webhook`, `fabric-dns-webhook-token` | Token auto; URL default or override |
 | [5/9] | `fabric-agent-ca` | **From your PEM files** (skipped if paths unset) |
-| [6/9] | `fabric-gateway-tls` | **From your PEM files** (skipped if paths unset) |
+| [6/9] | `fabric-gateway-tls` | **From your PEM files** — created in **`fabric-control`** (Ghostunnel) **and SaaS ns** (CP `/v1/ca-bundle` / Fetch CA). Skipped if paths unset |
 | [7/9] | `fabric-gateway-inbound-tls` | **From your PEM files** (skipped if paths unset) |
 | [8/9] | *(echo only)* | Reminder: replace image `REPLACE` in Deployments — **not done by this script** |
 | [9/9] | *(echo only)* | Reminder: set `ABLV_ACCESS_URL`, `FABRIC_DNS_TARGET`, `FABRIC_GATEWAY_INBOUND_DOMAIN` — **not done by this script** |
@@ -252,8 +252,11 @@ kubectl -n fabric-control get secret \
 
 kubectl -n "$NS" get secret \
   fabric-control-plane-auth fabric-platform-ids fabric-agent-ca \
+  fabric-gateway-tls \
   fabric-dns-webhook fabric-dns-webhook-token fabric-cert-expiry-webhook
 ```
+
+`fabric-gateway-tls` in **`$NS` (SaaS)** is required for Fabric CP `GET /v1/ca-bundle` / UI Fetch CA (Gateway server cert). Ghostunnel still uses the copy in `fabric-control`.
 
 ---
 
@@ -283,7 +286,7 @@ Follow **§2–§4**. Then:
 NS=3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
 kubectl get ns fabric-control ambient-plane fabric-edge "$NS"
 kubectl -n fabric-control get secret fabric-gateway-tls fabric-gateway-auth ocir-secret
-kubectl -n "$NS" get secret fabric-control-plane-auth fabric-agent-ca fabric-dns-webhook-token ocir-secret
+kubectl -n "$NS" get secret fabric-control-plane-auth fabric-agent-ca fabric-gateway-tls fabric-dns-webhook-token ocir-secret
 ```
 
 ### 5.1 Access + SQL (A3–A4)
@@ -765,6 +768,7 @@ Ambient + PERMISSIVE after Gateway exits the tunnel.
 | `ErrImagePull` / `platform not found` on VM | Image built on Mac **arm64**; VM is **amd64** | `docker build --platform linux/amd64` + push; `docker buildx imagetools inspect` |
 | `CreateContainerConfigError` on connect-agent | Distroless non-root needs UID | Patch DaemonSet `runAsUser: 65532` |
 | `tls: certificate signed by unknown authority` after tunnel path fixed | Agent `ca.crt` was **agent-ca** (signs leaves); Gateway cert is **self-signed** | `connect-agent-tls` / `CA_FILE` = **`gateway.crt`** (`fabric-gateway-tls` → `gateway-cert.pem`) |
+| Fetch CA / `GET /v1/ca-bundle` returns `CN=fabric-edge-ca` | `FABRIC_GATEWAY_CERT_FILE` unset or `fabric-gateway-tls` missing in **SaaS** ns | Mirror `fabric-gateway-tls` into SaaS ns; mount `/etc/fabric/gateway-tls`; set `FABRIC_GATEWAY_CERT_FILE`; restart CP. Expect `CN=fabric.abluva.com` |
 | `k8s_service_reconcile_failed` / `spec.ports: Required` | No Active registrations yet (empty port list) | Noise until first registration; then Service gets ports |
 | `POST /v1/tenants/$TENANT/registrations` → `not_found` | Wrong path | Use **`POST /v1/registrations`** with `tenant_id`, `display_name`, `destination_kind`, `host`, `port` |
 | Access `404` / `keys#database` | Wrong Access resource type | `ABLV_ACCESS_DB_RESOURCE_TYPE=control#database` |

@@ -29,6 +29,8 @@ On the same **Connect Agent** step:
 1. Click **Fetch and copy** or **Download**
 2. Save as `ca.crt`
 
+This must be the **Gateway server cert** (`CN=fabric.abluva.com` from `GET /v1/ca-bundle`), **not** `fabric-edge-ca` / Agent CA. Wrong CA → Agent `tls: certificate signed by unknown authority` on `:8443`.
+
 ### Install file
 1. Click **Copy** or **Download** under **Install**
 2. Save as `tenant-start.env` (Kubernetes) or `fabric-edge.env` (VM)

@@ -186,6 +186,15 @@ kubectl "${ctx_args[@]}" -n "$FABRIC_CONTROL_NAMESPACE" create secret generic fa
   --from-file=intermediate-ca.pem="$FABRIC_GATEWAY_CA_FILE" \
   --dry-run=client -o yaml | kubectl "${ctx_args[@]}" apply -f -
 
+# Same Gateway server cert in the SaaS ns: fabric-control-plane mounts it for
+# GET /v1/ca-bundle (UI "Fetch CA" → Agent install ca.crt). Without this, CP
+# falls back to fabric-agent-ca and Agents fail TLS verify on :8443.
+kubectl "${ctx_args[@]}" -n "$SAAS_NAMESPACE" create secret generic fabric-gateway-tls \
+  --from-file=gateway-cert.pem="$FABRIC_GATEWAY_CERT_FILE" \
+  --from-file=gateway-key.pem="$FABRIC_GATEWAY_KEY_FILE" \
+  --from-file=intermediate-ca.pem="$FABRIC_GATEWAY_CA_FILE" \
+  --dry-run=client -o yaml | kubectl "${ctx_args[@]}" apply -f -
+
 kubectl "${ctx_args[@]}" -n "$FABRIC_CONTROL_NAMESPACE" create secret generic fabric-gateway-inbound-tls \
   --from-file=inbound-cert.pem="$FABRIC_GATEWAY_INBOUND_CERT_FILE" \
   --from-file=inbound-key.pem="$FABRIC_GATEWAY_INBOUND_KEY_FILE" \

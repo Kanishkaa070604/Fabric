@@ -2,6 +2,13 @@
 # NOT product control-server:5001 — leave that Deployment alone.
 # Gateway → FABRIC_CONTROL_PLANE_URL = this Service :8080
 #
+# Prereq secrets in THIS namespace (same ns as the Deployment):
+#   fabric-control-plane-auth, fabric-platform-ids, fabric-agent-ca,
+#   fabric-dns-webhook-token, fabric-gateway-tls (gateway-cert.pem),
+#   ocir-secret
+# fabric-gateway-tls is also in fabric-control for Ghostunnel; day0.sh mirrors
+# it here so GET /v1/ca-bundle returns the Gateway server cert (not Agent CA).
+#
 # Do NOT also apply deployment-split-reconciler.yaml (second DNS writer).
 apiVersion: v1
 kind: ServiceAccount
