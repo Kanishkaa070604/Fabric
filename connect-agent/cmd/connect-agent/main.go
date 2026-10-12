@@ -565,7 +565,7 @@ func getenvInt(k string, def int) int {
 // Kubernetes Service routing exists for more than one registration per
 // tenant" bug write-up for why this exists. Off by default: it requires
 // RBAC (create/patch on Service in this namespace, see
-// deploy/connect-agent/daemonset.yaml's Role/RoleBinding) that a customer
+// deploy/connect-agent/kubernetes/daemonset.yaml's Role/RoleBinding) that a customer
 // must explicitly grant, same posture as the NetworkPolicy ACL templates.
 func loadServiceConfig() watch.ServiceConfig {
 	enabled := getenv("FABRIC_K8S_SERVICE_MANAGE_ENABLED", "") == "1"

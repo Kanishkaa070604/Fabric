@@ -14,7 +14,7 @@ import { createServer } from "./http/server";
 import { startHeartbeatWatchdog } from "./heartbeat";
 import { loadGatewayPushConfig } from "./gatewayPush";
 import { loadDnsReconcilerConfig, startDnsReconciler } from "./dns/reconciler";
-import { loadAgentCA } from "./pki/issueLeaf";
+import { loadAgentCA, loadGatewayTrustPem } from "./pki/issueLeaf";
 import { startCertExpiryScanJob } from "./jobs/certExpiryScan";
 import {
   buildDevPackContext,
@@ -92,6 +92,7 @@ async function main() {
 
   const gatewayPush = loadGatewayPushConfig();
   const agentCA = loadAgentCA();
+  const gatewayTrustPem = loadGatewayTrustPem();
 
   // Secure Pack routes are opt-in. FABRIC_PACKS_STORE selects the backend:
   //   "postgres" → Sequelize repository + Access-API key protector/signer (prod).
@@ -148,13 +149,22 @@ async function main() {
     dualControlToken: dualControlToken || undefined,
     gatewayToken: gatewayToken || undefined,
     inboundDomainSuffix: process.env.FABRIC_GATEWAY_INBOUND_DOMAIN || "connect.fabric",
+    inboundListenPort: Number(process.env.FABRIC_GATEWAY_INBOUND_PORT || 8444),
     gatewayPush,
     agentCA,
+    gatewayTrustPem,
     packs,
   });
   log.info("agent_ca_config", {
     layer: "control-plane.enroll",
     csr_signing_enabled: !!agentCA,
+  });
+  log.info("ca_bundle_config", {
+    layer: "control-plane.trust",
+    gateway_trust_configured: !!gatewayTrustPem,
+    note: gatewayTrustPem
+      ? "GET /v1/ca-bundle returns Gateway server cert (Agent install trust)"
+      : "GET /v1/ca-bundle falls back to Agent CA until FABRIC_GATEWAY_CERT_FILE is set",
   });
   log.info("gateway_push_config", {
     layer: "main",

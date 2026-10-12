@@ -712,14 +712,14 @@ GCP metadata attestation as alternatives to bootstrap token. Builds on
 
 ### Substrate strategy (D10)
 
-Shipped, not just planned: `deploy/connect-agent/k3s-appliance/install.sh`
+Shipped, not just planned: `deploy/connect-agent/vm/k3s-appliance/install.sh`
 is a real single-command installer (k3s + Agent DaemonSet), and is the
 **recommended default for VM/bare-metal**, not a "v2, only if you have
 multiple services" fallback. The reliability layer k3s brings — liveness/
 readiness probes, resource limits, rolling updates, Secret-backed identity
 parity with the Kubernetes path — is the point on its own, independent of
 whether the customer runs one companion service or several. The plain
-systemd single-binary path (`deploy/connect-agent/systemd/`) still exists
+systemd single-binary path (`deploy/connect-agent/vm/systemd/`) still exists
 and still works, but is now the simplest-case fallback, not the default
 recommendation. Kubernetes customers use `tenant-start.sh` (a Helm chart
 is planned, not yet shipped); ECS uses a task-definition template; Docker

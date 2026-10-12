@@ -1,0 +1,129 @@
+# Hybrid: customer-side launcher — aligned with k8s/saas-agent.yaml.
+# Installers (tenant-start.sh / k3s install.sh) replace from env:
+#   <tenant-namespace>           ← TENANT_NAMESPACE
+#   <tenantId>                   ← TENANT_ID
+#   <envid>                      ← ENVIRONMENT_ID
+#   <control-server-listen-port> ← CONTROL_SERVER_LISTEN_PORT
+# Operator must set before apply:
+#   X_ABLV_PRINCIPAL = your login email (sent as X-ABLV-Principal)
+#
+# INFRA_BASE_URL is Customer→Platform via Connect Agent (not SaaS in-cluster DNS):
+#   http://connect-agent.<ns>.svc.cluster.local:<listener-port>
+# <control-server-listen-port> = Agent StreamOpen port for PLATFORM reg
+# display_name=control-server. Prefer Connect UI Install → CONTROL_SERVER_LISTEN_PORT
+# (Fabric agent_listen_port after Agent reports). Fallback: svc annotation
+# fabric.abluva.io/registration-ports keyed by that registration UUID.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent
+  namespace: <tenant-namespace>
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agent-role
+  namespace: <tenant-namespace>
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "secrets", "configmaps", "serviceaccounts", "persistentvolumeclaims", "endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log", "pods/exec"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "replicasets", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "escalate", "bind"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-binding
+  namespace: <tenant-namespace>
+subjects:
+  - kind: ServiceAccount
+    name: agent
+    namespace: <tenant-namespace>
+roleRef:
+  kind: Role
+  name: agent-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent
+  namespace: <tenant-namespace>
+  labels:
+    tier: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      tier: agent
+  template:
+    metadata:
+      labels:
+        tier: agent
+        abluva.io/connect-consumer: "true"
+    spec:
+      serviceAccountName: agent
+      containers:
+        - name: agent-container
+          image: phx.ocir.io/axsfgj15p1je/launcher:4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5004
+          env:
+            # Customer→Platform: dial Connect Agent listener for control-server
+            # (PLATFORM reg). Not control-server-svc.<saas-ns>… (unreachable from tenant).
+            - name: INFRA_BASE_URL
+              value: "http://connect-agent.<tenant-namespace>.svc.cluster.local:<control-server-listen-port>"
+            - name: X_ABLV_TENANT_ID
+              value: "<tenantId>"
+            - name: X_ABLV_ENVIRONMENT_ID
+              value: "<envid>"
+            # X-ABLV-Principal — set to your login email before install
+            - name: X_ABLV_PRINCIPAL
+              value: "you@yourcompany.com"
+            - name: X_ABLV_PRINCIPAL_ROLE
+              value: "tenant-admin"
+            - name: X_SAAS_TENANT_ID
+              value: "3407e407-792a-452d-8bb4-03c54ac34d52"
+            - name: X_SAAS_ENVIRONMENT_ID
+              value: "5620f907-0281-497d-9098-8cfed51f5be1"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-svc
+  namespace: <tenant-namespace>
+  labels:
+    tier: agent
+spec:
+  type: ClusterIP
+  selector:
+    tier: agent
+  ports:
+    - protocol: TCP
+      port: 5004
+      targetPort: 5004

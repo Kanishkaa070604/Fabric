@@ -50,8 +50,11 @@ registration:
   # Deleted | Failed
   failure_reason: null                 # set when Failed
   observed: {}                         # per-agent reachability map (JSON)
-  inbound_hostname: null               # set for Active CUSTOMER_* inbound
-  # e.g. "<reg_id>.<tenant_id>.connect.fabric"
+  inbound_hostname: null               # CUSTOMER_* only: "<reg_id>.<tenant_id>.connect…"
+  inbound_hostname_friendly: null      # CUSTOMER_* only: "<slug>.<tenant_id>.connect…"
+  inbound_listen_port: null            # CUSTOMER_* only: 8444
+  platform_dial_url: null              # CUSTOMER_* only: https://<inbound_hostname>:8444
+  platform_dial_url_friendly: null     # CUSTOMER_* only: https://<friendly>:8444
   deleted_at: null
   created_at / created_by / updated_at / updated_by
 ```
@@ -107,9 +110,9 @@ See `Level-3-Store-OIDC-Spec.md` / `ablv_tenant_connect`: bootstrap token
 
 | Artifact | Path |
 |---|---|
-| Installer | `deploy/connect-agent/tenant-start.sh` + `tenant-start.env.example` |
-| DaemonSet + Service + RBAC | `deploy/connect-agent/daemonset.yaml` |
-| NetworkPolicy example | `deploy/connect-agent/networkpolicy-example.yaml` |
+| Installer | `deploy/connect-agent/kubernetes/tenant-start.sh` + `tenant-start.env.example` |
+| DaemonSet + Service + RBAC | `deploy/connect-agent/kubernetes/daemonset.yaml` |
+| NetworkPolicy example | `deploy/connect-agent/kubernetes/networkpolicy-example.yaml` |
 | Packaging notes | `deploy/connect-agent/README.md` |
 
 **Locked packaging facts:**
@@ -140,7 +143,7 @@ hostPath remains supported as a legacy path for existing fleets.
 | Substrate | Location | Status |
 |---|---|---|
 | ECS | `deploy/connect-agent/ecs/` (SG example + README) | Partial — full task / identity-survives-recycle = `L3-POC-ECS` |
-| VM / bare metal | `deploy/connect-agent/systemd/` | Shipped (L3-ACL-03) |
+| VM / bare metal | `deploy/connect-agent/vm/systemd/` | Shipped (L3-ACL-03) |
 
 Same protocol: app → local Agent listener → outbound tunnel.
 

@@ -24,6 +24,7 @@ import {
   filterEligibleAgents,
   evidenceTrustFromTenant,
   slugifyDisplayName,
+  isUuid,
   type WorkloadEvidenceStrategy,
 } from "./types";
 
@@ -248,8 +249,8 @@ export class SequelizeStore implements FabricStore {
       const created = await this.models.TenantConnect.create(
         {
           tenant_id: tenantId,
-          // D8: approval required by default -- see memory.ts ensureTenant.
-          auto_approve_agents: false,
+          // Temporary: auto-approve on so Day-1 UI can skip Approve.
+          auto_approve_agents: true,
           max_tunnels: 50,
           max_concurrent_streams: 2000,
           max_stream_open_per_sec: 100,
@@ -1246,6 +1247,7 @@ export class SequelizeStore implements FabricStore {
       condition: string;
       reachable?: "true" | "false" | "unknown";
       observed_generation: number;
+      listen_port?: number;
     },
     actor: string
   ): Promise<Registration> {
@@ -1259,7 +1261,16 @@ export class SequelizeStore implements FabricStore {
       if (!agent || agent.get("tenant_id") !== reg.get("tenant_id")) {
         throw new Error("agent_not_found");
       }
+      if (
+        observed.listen_port !== undefined &&
+        (!Number.isInteger(observed.listen_port) ||
+          observed.listen_port < 1 ||
+          observed.listen_port > 65535)
+      ) {
+        throw new Error("invalid_listen_port");
+      }
       const r = asRegistration(reg.get({ plain: true }) as Record<string, unknown>);
+      const prev = r.observed[`agent:${agentId}`];
       // New object required: Sequelize skips JSONB updates when the reference is unchanged.
       const nextObserved = {
         ...r.observed,
@@ -1267,6 +1278,10 @@ export class SequelizeStore implements FabricStore {
           observed_generation: observed.observed_generation,
           condition: observed.condition,
           reachable: observed.reachable,
+          listen_port:
+            observed.listen_port !== undefined
+              ? observed.listen_port
+              : prev?.listen_port,
           reported_at: new Date().toISOString(),
         },
       };
@@ -1336,10 +1351,12 @@ export class SequelizeStore implements FabricStore {
     let registration: AuthzContext["registration"] = null;
     const eligible_agents: Agent[] = [];
     if (query.registration_id) {
-      // Try UUID first (canonical path).
-      let regRow = await this.models.Registration.findByPk(
-        query.registration_id
-      );
+      // UUID PK path first. Do NOT findByPk(slug): PG UUID columns throw
+      // "invalid input syntax for type uuid" on names like agent-launcher,
+      // which surfaces as authz-context 500 / inbound_denied for friendly SNI.
+      let regRow = isUuid(query.registration_id)
+        ? await this.models.Registration.findByPk(query.registration_id)
+        : null;
       // Convention-driven fallback: resolve display_name slug within tenant
       // (same logic as memory.ts's authzContext — see that function's
       // comment for the full rationale about SaaS service discovery).

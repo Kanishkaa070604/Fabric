@@ -13,10 +13,12 @@
 #   ./tenant-start.sh <path/to/tenant-start.env>
 #
 # Prerequisites:
-#   - kubectl with rights to create Namespace / Secret / DaemonSet / Role / Service
+#   - kubectl with rights to create Namespace / Secret / DaemonSet / Deployment /
+#     Service / Role / RoleBinding / NetworkPolicy
 #   - Day-1 values from Abluva Connect UI (see tenant-start.env.example)
 #   - Egress to FABRIC_GATEWAY_ADDRESS :8443 and to FABRIC_CONTROL_PLANE_URL
 #   - python3 (used only to render the DaemonSet YAML)
+#   - Sibling ../../agent/agent-deployment.yaml (launcher; applied by this script)
 #
 # Support trap (read this):
 #   Agent→Gateway is raw mutual-TLS TCP, not HTTP. If the node/cluster injects
@@ -74,6 +76,9 @@ fi
 NO_PROXY_VALUE="${GW_HOST},localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.svc.cluster.local,.cluster.local"
 AGENT_TIMEOUT="${AGENT_TIMEOUT:-300s}"
 SKIP_NETWORK_POLICY="${SKIP_NETWORK_POLICY:-0}"
+: "${ENVIRONMENT_ID:?ENVIRONMENT_ID required}"
+SAAS_NAMESPACE="${SAAS_NAMESPACE:-3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c}"
+AGENT_DEPLOY_YAML="${AGENT_DEPLOY_YAML:-$SCRIPT_DIR/../../agent/agent-deployment.yaml}"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
@@ -83,27 +88,45 @@ echo " Abluva Connect Agent — tenant bootstrap"
 echo "============================================================"
 echo "  Namespace:     $TENANT_NAMESPACE"
 echo "  Tenant ID:     $TENANT_ID"
+echo "  SaaS ns:       $SAAS_NAMESPACE"
 echo "  Gateway:       $FABRIC_GATEWAY_ADDRESS  (NO_PROXY includes $GW_HOST)"
 echo "  Control plane: $FABRIC_CONTROL_PLANE_URL"
 echo "  Context:       $(kubectl config current-context 2>/dev/null || echo unknown)"
 echo ""
 
-echo "[1/5] Namespace"
-kubectl create namespace "$TENANT_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+echo "[1/6] Namespace"
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${TENANT_NAMESPACE}
+  labels:
+    abluva.io/tenant: "true"
+EOF
 kubectl config set-context --current --namespace "$TENANT_NAMESPACE" >/dev/null || true
-echo "[OK] Namespace ready."
+echo "[OK] Namespace ready (abluva.io/tenant=true)."
 
-echo "[2/5] Secrets"
+echo "[2/6] Secrets"
 kubectl -n "$TENANT_NAMESPACE" create secret generic connect-agent-tls \
   --from-file=ca.crt="$CA_CERT_FILE" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-kubectl -n "$TENANT_NAMESPACE" create secret generic fabric-edge-bootstrap \
+# Upsert bootstrap: re-run with a new token overwrites the Secret.
+# Enrolled Agents ignore bootstrap (they use their leaf). New pods/nodes
+# read this Secret at start and enroll with the updated token.
+_bs_yaml="$(kubectl -n "$TENANT_NAMESPACE" create secret generic fabric-edge-bootstrap \
   --from-literal=bootstrap_token="$BOOTSTRAP_TOKEN" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml)"
+if kubectl -n "$TENANT_NAMESPACE" get secret fabric-edge-bootstrap >/dev/null 2>&1; then
+  echo "$_bs_yaml" | kubectl -n "$TENANT_NAMESPACE" replace -f -
+  echo "[OK] fabric-edge-bootstrap updated (new enrolls use this token)."
+else
+  echo "$_bs_yaml" | kubectl -n "$TENANT_NAMESPACE" apply -f -
+  echo "[OK] fabric-edge-bootstrap created."
+fi
 echo "[OK] Secrets applied (CA + bootstrap). No separate Agent API seed needed."
 
-echo "[3/5] DaemonSet + Service + RBAC"
+echo "[3/6] DaemonSet + Service + RBAC"
 export NO_PROXY_VALUE
 python3 - "$SCRIPT_DIR/daemonset.yaml" "$WORKDIR/daemonset.yaml" <<'PY'
 import re, sys
@@ -186,16 +209,37 @@ PY
 kubectl apply -f "$WORKDIR/daemonset.yaml"
 echo "[OK] DaemonSet applied."
 
-echo "[4/5] NetworkPolicy"
+echo "[4/6] agent launcher"
+if [[ ! -f "$AGENT_DEPLOY_YAML" ]]; then
+  echo "Error: missing $AGENT_DEPLOY_YAML (agent/ must sit next to connect-agent/)"
+  exit 1
+fi
+# INFRA_BASE_URL uses connect-agent:<CONTROL_SERVER_LISTEN_PORT> (Customer→Platform).
+CS_PORT="${CONTROL_SERVER_LISTEN_PORT:-<control-server-listen-port>}"
+sed -e "s/<tenant-namespace>/${TENANT_NAMESPACE}/g" \
+    -e "s/<tenantId>/${TENANT_ID}/g" \
+    -e "s/<envid>/${ENVIRONMENT_ID}/g" \
+    -e "s/<control-server-listen-port>/${CS_PORT}/g" \
+    "$AGENT_DEPLOY_YAML" | kubectl apply -f -
+echo "[OK] agent-deployment.yaml applied (INFRA_BASE_URL → connect-agent:${CS_PORT})."
+if [[ "$CS_PORT" == "<control-server-listen-port>" ]]; then
+  echo "     NOTE: set CONTROL_SERVER_LISTEN_PORT when known (PLATFORM control-server listener)."
+fi
+
+echo "[5/6] NetworkPolicy"
 if [[ "$SKIP_NETWORK_POLICY" == "1" ]]; then
   echo "[SKIP] SKIP_NETWORK_POLICY=1"
 else
-  sed "s/TENANT_NAMESPACE/${TENANT_NAMESPACE}/g" \
+  sed -e "s/TENANT_NAMESPACE/${TENANT_NAMESPACE}/g" \
+      -e "s/SAAS_NAMESPACE/${SAAS_NAMESPACE}/g" \
     "$SCRIPT_DIR/networkpolicy-example.yaml" | kubectl apply -f -
-  echo "[OK] NetworkPolicy applied. Label consumer pods: abluva.io/connect-consumer=true"
+  # Do not apply connect-agent-ingress by default (k3s/kube-router REJECT).
+  kubectl -n "$TENANT_NAMESPACE" delete netpol connect-agent-ingress --ignore-not-found >/dev/null 2>&1 || true
+  echo "[OK] tenant-namespace-isolation applied (same-ns + SaaS + kube-API egress)."
+  echo "     Optional Agent NetPol: networkpolicy-agent-ingress-optional.yaml (test before apply)."
 fi
 
-echo "[5/5] Wait for DaemonSet"
+echo "[6/6] Wait for DaemonSet"
 kubectl -n "$TENANT_NAMESPACE" rollout status "daemonset/connect-agent" --timeout="$AGENT_TIMEOUT"
 
 echo ""
@@ -203,22 +247,34 @@ echo "============================================================"
 echo "  TENANT AGENT INSTALL COMPLETE"
 echo "============================================================"
 echo ""
-echo "  Next (Abluva Connect UI / ops):"
-echo "    1. Approve the Agent if it is PendingApproval"
-echo "    2. Confirm tunnel_ready / Connected in the UI"
-echo "    3. Create a registration (e.g. CUSTOMER_RESOURCE → your Postgres host:port)"
-echo "    4. Wait ~5–10s for the Agent poll, then dial:"
-echo "       connect-agent.${TENANT_NAMESPACE}.svc:<port>"
-echo "       (port map: kubectl -n $TENANT_NAMESPACE get svc connect-agent -o yaml | grep registration-ports)"
+echo "  Next (Abluva Connect UI):"
+echo "    1. Wait until Connect Agent is Connected (Approve only if PendingApproval)."
+echo "    2. Platform catalog (8a): seed discovery / control-server / … PLATFORM regs."
+echo "    3. Customer registrations (8b) ONLY after the Service exists in this ns:"
+echo "         agent-launcher → host=agent-svc  port=5004  (applied by this script)"
+echo "         data-privacy   → deploy privacy first, then host=data-privacy-svc port=8080"
+echo "       Wrong/missing host → inbound destination_unavailable (eligible_agents=0)."
+echo "    4. Confirm observed.reachable=true before Platform→Customer dials."
+echo "    5. Customer→Platform dial FQDN (launcher INFRA_BASE_URL):"
+echo "         http://connect-agent.${TENANT_NAMESPACE}.svc.cluster.local:<control-server-listen-port>"
+echo "       Prefer CONTROL_SERVER_LISTEN_PORT from Connect UI Install (Refresh after"
+echo "       Agent Connected → Fabric control-server.agent_listen_port). Or annotation:"
+echo "         kubectl -n $TENANT_NAMESPACE get svc connect-agent \\"
+echo "           -o jsonpath='{.metadata.annotations.fabric\\.abluva\\.io/registration-ports}'"
+echo "       Then re-apply agent-deployment or patch Deployment/agent env INFRA_BASE_URL."
+echo "       Platform→Customer dial FQDN:"
+echo "         https://<reg-or-slug>.${TENANT_ID}.connect.abluva.com:8444/…"
+echo "       Port map:"
+echo "         kubectl -n $TENANT_NAMESPACE get svc connect-agent -o jsonpath='{.metadata.annotations}'"
 echo ""
-echo "  Identity: stored in a per-node Kubernetes Secret (FABRIC_IDENTITY_STORE=kubernetes)."
-echo "    Survives Agent image rollouts. No hostPath or Pod Security exception needed."
+echo "  Identity: per-node Kubernetes Secret (FABRIC_IDENTITY_STORE=kubernetes)."
+echo "    Survives Agent image rollouts. No hostPath / PSA exception needed."
 echo ""
 echo "  Proxy check (if stuck Connecting):"
 echo "    POD=\$(kubectl -n $TENANT_NAMESPACE get pod -l app=connect-agent -o jsonpath='{.items[0].metadata.name}')"
 echo "    kubectl -n $TENANT_NAMESPACE exec \"\$POD\" -- printenv | egrep -i 'proxy|FABRIC_GATEWAY'"
-echo "    # Gateway host must appear in NO_PROXY; do not rely on HTTP_PROXY for the tunnel."
+echo "    # Gateway host must appear in NO_PROXY; do not use HTTP_PROXY for the tunnel."
 echo ""
-echo "  Day-1 tokens: after successful enroll, revoke the"
-echo "  bootstrap token in the UI if the install window should close."
+echo "  Day-1: after enroll succeeds, revoke the bootstrap token in the UI"
+echo "  if the install window should close."
 echo "============================================================"

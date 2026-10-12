@@ -757,7 +757,7 @@ backoff, and the same K8s-Secret-based identity store as full Kubernetes
 customers — all without asking the customer to "install Kubernetes." It's
 a single 60MB binary underneath; the customer sees one install command.
 
-The plain systemd path (`deploy/connect-agent/systemd/`) still works for
+The plain systemd path (`deploy/connect-agent/vm/systemd/`) still works for
 the simplest case (one binary, restarted on crash, identity on local disk),
 but it lacks probes, resource limits, rolling updates, and the Secret-based
 identity store. **For production customers, prefer the k3s appliance** —

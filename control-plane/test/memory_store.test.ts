@@ -98,9 +98,10 @@ describe("MemoryStore agent lifecycle", () => {
     assert.equal(approved.state, "Connected");
   });
 
-  it("D8: enrollment requires approval by default (PendingApproval, no tunnel)", async () => {
+  it("D8: enrollment requires approval when auto-approve is off (PendingApproval, no tunnel)", async () => {
     const s = new MemoryStore();
     await s.ensureTenant(TENANT, "test");
+    await s.setAutoApprove(TENANT, false, "test");
     const tok = await s.issueBootstrapToken(TENANT, "test");
     const agent = await s.enrollAgent({
       tenant_id: TENANT,

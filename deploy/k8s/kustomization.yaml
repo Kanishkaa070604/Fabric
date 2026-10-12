@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Platform Day 0 workloads. Applied by Fabric/deploy/platform/day0.sh
+# from the parent of this repo:
+#   ./Fabric/deploy/platform/day0.sh
+#   kubectl kustomize --load-restrictor=LoadRestrictionsNone Fabric/deploy/k8s | kubectl apply -f -
+#
+# Paths go up to the existing YAML (single source). Do not list
+# deployment-split-reconciler.yaml (conflicts with deployment.yaml).
+resources:
+  - ../gateway/deployment.yaml
+  - ../control-plane/deployment.yaml
+  - ../platform/oci/dns-webhook/deployment.yaml

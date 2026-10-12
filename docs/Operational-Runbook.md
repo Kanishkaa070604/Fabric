@@ -282,7 +282,7 @@ tunnel is silently broken.
 **The rules:**
 - On the Agent pod, `NO_PROXY`/`no_proxy` **must** include the Gateway's
   hostname (NLB DNS) and the cluster's internal address ranges.
-  `deploy/connect-agent/tenant-start.sh` and the DaemonSet template set this.
+  `deploy/connect-agent/kubernetes/tenant-start.sh` and the DaemonSet template set this.
 - Do **not** set `HTTP_PROXY`/`HTTPS_PROXY` on the Agent in an attempt to
   "help" it reach the Gateway — that almost always breaks the tunnel.
 - On the Gateway side, keep the control-plane and Access API hosts in
@@ -333,48 +333,27 @@ same subdomain conflict. Pick one.
 **Do not** enable Cloudflare's HTTP proxy (orange cloud) on any Fabric
 record — Agents and inbound dials are TCP mTLS to `:8443`/`:8444`, not HTTP.
 
-### Step 0 — Platform Secrets (one script)
+### Step 0 — Platform Day 0 (one script)
 
-All Platform Secrets (writer bearer, dual-control, platform Access IDs,
-cert-expiry webhook, DNS webhook URL+token, Agent CA, Gateway TLS) are
-created by a single script so names/keys match the Deployments:
+SaaS / platform ops: **`deploy/platform/day0.sh`**. One file: PEM generation,
+namespaces, Secrets, kustomize apply (`deploy/k8s`), Ambient.
 
 ```bash
 cd deploy/platform
-
-# Namespaces default from namespaces.sh (see note below the table); override
-# FABRIC_CONTROL_NAMESPACE / SAAS_NAMESPACE if your install differs.
-export ABLV_PLATFORM_TENANT_ID=<platform-saas-tenant-uuid>      # required
-export ABLV_PLATFORM_ENVIRONMENT_ID=<platform-env-uuid>         # required
-export CERT_EXPIRY_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../xxx   # optional
-export FABRIC_AGENT_CA_CERT_FILE=/path/to/agent-ca.crt
-export FABRIC_AGENT_CA_KEY_FILE=/path/to/agent-ca.key
-export FABRIC_GATEWAY_CERT_FILE=/path/to/gateway.crt
-export FABRIC_GATEWAY_KEY_FILE=/path/to/gateway.key
-export FABRIC_GATEWAY_CA_FILE=/path/to/intermediate-ca.pem        # Ghostunnel --cacert
-# Platform→Customer inbound (A3/B4). Required unless you disable inbound;
-# a wildcard server cert whose SANs cover *.<tenant>.connect.abluva.com.
-export FABRIC_GATEWAY_INBOUND_CERT_FILE=/path/to/inbound.crt      # → fabric-gateway-inbound-tls
-export FABRIC_GATEWAY_INBOUND_KEY_FILE=/path/to/inbound.key
-# Optional: pin token values instead of letting the script generate them
-# (leave unset to auto-generate). Names match the script's env overrides.
-# export FABRIC_CONTROL_PLANE_TOKEN=... FABRIC_DUAL_CONTROL_TOKEN=...
-# export FABRIC_GATEWAY_CONTROL_TOKEN=... FABRIC_REVOKE_PUSH_TOKEN=...
-# Namespaces (defaults from deploy/platform/namespaces.sh):
-# export FABRIC_CONTROL_NAMESPACE=fabric-control   # Gateway/Ghostunnel
-# export SAAS_NAMESPACE=<tenant-env-uuid>          # control plane + DNS webhook
-
-./setup-day0.sh
-# Prints generated tokens (save securely) and next-step instructions.
+./day0.sh
 ```
 
-**Two namespaces are involved** (the script sources `deploy/platform/namespaces.sh`):
-`FABRIC_CONTROL_NAMESPACE` (default `fabric-control`) holds the **Gateway/
-Ghostunnel**; `SAAS_NAMESPACE` (the long tenant/env UUID, default in
-`namespaces.sh`) holds the **control plane** and **DNS webhook**. Override either
-via those env vars before running the script; do not assume a single namespace.
+Optional env: `ABLV_PLATFORM_TENANT_ID`, `ABLV_PLATFORM_ENVIRONMENT_ID`,
+`CERT_EXPIRY_WEBHOOK_URL`, `SKIP_AMBIENT=1`, `SKIP_DEPLOY=1`, `FORCE_PKI=1`.
+`setup-day0.sh` is a thin wrapper (`SKIP_DEPLOY=1 SKIP_AMBIENT=1`).
 
-**Secrets this must create** (verified against `deploy/platform/setup-day0.sh` +
+**Two namespaces are involved** (`FABRIC_CONTROL_NAMESPACE` default `fabric-control`;
+`SAAS_NAMESPACE` default in the script):
+`FABRIC_CONTROL_NAMESPACE` (default `fabric-control`) holds the **Gateway/
+Ghostunnel**; `SAAS_NAMESPACE` (the long tenant/env UUID) holds the **control plane**
+and **DNS webhook**. Override either via those env vars before running.
+
+**Secrets this must create** (verified against `deploy/platform/day0.sh` +
 `deploy/gateway/deployment.yaml` + `deploy/control-plane/deployment.yaml`):
 
 | Secret | Namespace | Keys | Consumed by |
@@ -1503,9 +1482,9 @@ Pick **one** substrate. Do not mix.
 
 | Customer substrate | Install artifact | Doc |
 |---|---|---|
-| **Kubernetes** (any distro) | `deploy/connect-agent/tenant-start.sh` + `tenant-start.env` | below |
-| **VM / bare metal (Linux)** | **`deploy/connect-agent/k3s-appliance/install.sh`** (recommended) | [E2E OCI + k3s](#end-to-end-oci-oke--linux-vm-k3s-appliance) + `k3s-appliance/README.md` |
-| VM fallback | `deploy/connect-agent/systemd/` | weaker probes/limits — prefer k3s appliance |
+| **Kubernetes** (any distro) | `deploy/connect-agent/kubernetes/tenant-start.sh` + `tenant-start.env` | below |
+| **VM / bare metal (Linux)** | **`deploy/connect-agent/vm/k3s-appliance/install.sh`** (recommended) | [E2E OCI + k3s](#end-to-end-oci-oke--linux-vm-k3s-appliance) + `k3s-appliance/README.md` |
+| VM fallback | `deploy/connect-agent/vm/systemd/` | weaker probes/limits — prefer k3s appliance |
 | ECS / Docker | **Not GA** | UI must not offer yet (`Tenant-App-UI-Checklist.md` §1) |
 
 **Mac customers:** the k3s appliance needs **Linux + systemd**. Run it inside
@@ -1514,10 +1493,12 @@ a Linux VM on the Mac, or use a real Linux box.
 #### 3a — Kubernetes (`tenant-start.sh`)
 
 ```bash
-cd deploy/connect-agent
+cd deploy/connect-agent/kubernetes
 cp tenant-start.env.example tenant-start.env
 # Fill: TENANT_*, FABRIC_GATEWAY_ADDRESS, FABRIC_CONTROL_PLANE_URL,
 # CONNECT_AGENT_IMAGE, CA_CERT_FILE, BOOTSTRAP_TOKEN
+# After Agent Connected: CONTROL_SERVER_LISTEN_PORT from Connect UI Refresh
+# (Fabric control-server.agent_listen_port) or svc registration-ports annotation
 ./tenant-start.sh ./tenant-start.env
 kubectl -n "$TENANT_NAMESPACE" get pods -l app=connect-agent
 kubectl -n "$TENANT_NAMESPACE" logs -l app=connect-agent --tail=100
@@ -1527,8 +1508,11 @@ Manual path: `daemonset.yaml` + `networkpolicy-example.yaml` — CA-only Secret
 (`ca.crt`), `FABRIC_BOOTSTRAP_TOKEN`, `NO_PROXY` includes Gateway hostname,
 `FABRIC_IDENTITY_STORE=kubernetes` (recommended). Apps dial
 `connect-agent.<ns>.svc.cluster.local:<port>` (ports from
-`fabric.abluva.io/registration-ports`). Full mechanism:
-`deploy/connect-agent/README.md`.
+`fabric.abluva.io/registration-ports`, also Fabric **`agent_listen_port`**
+after the Agent reports `listen_port` on observed). Launcher
+`CONTROL_SERVER_LISTEN_PORT` → `INFRA_BASE_URL` for PLATFORM control-server.
+Full mechanism: `deploy/connect-agent/README.md` +
+`deploy/secure-agent-net.README.md` Step 5.
 
 #### 3b — VM — k3s appliance
 
@@ -1994,7 +1978,7 @@ Agent binary). Walk every row; do not skip ☐.
 **host OS** must be Linux so **k3s** can install (k3s creates a systemd
 unit). The Connect Agent itself still runs as a **Kubernetes DaemonSet**
 with Secret identity — same model as full K8s customers. Prefer this over
-`deploy/connect-agent/systemd/`.
+`deploy/connect-agent/vm/systemd/`.
 
 **Prereq outside this repo:** An OKE cluster you can `kubectl` to, OCI
 compartment/subnet rights, container images pushed to a registry OKE + the
@@ -2546,7 +2530,7 @@ Durations accept forms like `25s`, `3m`, `24h`, `30d` unless noted.
 
 Production manifests already pin the important ones
 (`deploy/control-plane/deployment.yaml`, `deploy/gateway/deployment.yaml`,
-`deploy/connect-agent/daemonset.yaml`). Changing a value without
+`deploy/connect-agent/kubernetes/daemonset.yaml`). Changing a value without
 understanding the “If you set it wrong” column is how you get silent
 SIGKILLs or surprise re-rotates.
 

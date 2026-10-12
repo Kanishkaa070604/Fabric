@@ -160,10 +160,20 @@ func (m *Manager) tick(ctx context.Context) {
 		}
 	}
 	sort.Slice(listenRegs, func(i, j int) bool { return listenRegs[i].ID < listenRegs[j].ID })
+	var ports map[string]int
 	if !m.DisableListeners {
 		m.syncListeners(ctx, listenRegs)
+		ports = m.portsSnapshot()
 		if m.k8sClient != nil {
-			m.reconcileService(ctx, m.portsSnapshot())
+			m.reconcileService(ctx, ports)
+		}
+		// Publish Agent-local listen ports to Fabric so SaaS can fill
+		// Customer→Platform URLs (connect-agent.<ns>.svc:<port>) without
+		// reading the customer Service annotation.
+		for _, r := range listenRegs {
+			if p, ok := ports[r.ID]; ok {
+				m.reportListenPort(ctx, r, p)
+			}
 		}
 	}
 	if !m.DisableProbes {
@@ -305,16 +315,43 @@ func (m *Manager) probeAndReport(ctx context.Context, r Registration) {
 	// No agent_id: the control plane attributes the observation to whichever
 	// Agent the bearer belongs to. Sending it would be at best redundant and
 	// at worst misleading, since a value here cannot change the attribution.
-	body, _ := json.Marshal(map[string]any{
+	body := map[string]any{
 		"condition":           "Probe",
 		"reachable":           reachable,
 		"observed_generation": r.Generation,
-	})
+	}
+	// Preserve / refresh listen_port on probe so CUSTOMER_* hairpin listeners
+	// are not wiped when Probe overwrites the observed slot.
+	m.mu.Lock()
+	if p, ok := m.ports[r.ID]; ok {
+		body["listen_port"] = p
+	}
+	m.mu.Unlock()
+	m.postObserved(ctx, r.ID, body, "observed_reported", "reachable", reachable)
+}
+
+// reportListenPort tells Fabric the Agent-local StreamOpen port for a
+// registration (Customer→Platform dial target on connect-agent Service).
+func (m *Manager) reportListenPort(ctx context.Context, r Registration, port int) {
+	if m.AgentID == "" || port < 1 {
+		return
+	}
+	body := map[string]any{
+		"condition":           "Listener",
+		"reachable":           "true",
+		"observed_generation": r.Generation,
+		"listen_port":         port,
+	}
+	m.postObserved(ctx, r.ID, body, "listen_port_reported", "listen_port", port)
+}
+
+func (m *Manager) postObserved(ctx context.Context, registrationID string, body map[string]any, okLog string, extraKey string, extraVal any) {
+	payload, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
-		m.ControlPlaneURL+"/v1/registrations/"+r.ID+"/observed",
-		bytes.NewReader(body),
+		m.ControlPlaneURL+"/v1/registrations/"+registrationID+"/observed",
+		bytes.NewReader(payload),
 	)
 	if err != nil {
 		return
@@ -329,9 +366,9 @@ func (m *Manager) probeAndReport(ctx context.Context, r Registration) {
 	}
 	defer res.Body.Close()
 	_, _ = io.Copy(io.Discard, res.Body)
-	logging.Debug(ctx, m.Log, "observed_reported",
-		"registration_id", r.ID,
-		"reachable", reachable,
+	logging.Debug(ctx, m.Log, okLog,
+		"registration_id", registrationID,
+		extraKey, extraVal,
 	)
 }
 

@@ -7,16 +7,27 @@ directory originally shipped with. Status of each:
 
 | Substrate | Ticket | ACL artifact | Status |
 |---|---|---|---|
-| Kubernetes | L3-ACL-01 | [`networkpolicy-example.yaml`](./networkpolicy-example.yaml) | Shipped |
+| Kubernetes | L3-ACL-01 | [`kubernetes/networkpolicy-example.yaml`](./kubernetes/networkpolicy-example.yaml) | Shipped |
 | ECS | L3-ACL-02 | [`ecs/security-group.example.json`](./ecs/security-group.example.json) | Shipped (SG only — full task definition blocked on L3-POC-ECS, see [`ecs/README.md`](./ecs/README.md)) |
-| VM / bare-metal | L3-ACL-03 | [`k3s-appliance/`](./k3s-appliance/) (recommended) or [`systemd/`](./systemd/) | **Shipped** — prefer k3s appliance (probes, limits, Secret identity). Runbook E2E: OCI + k3s |
+| VM / bare-metal | L3-ACL-03 | [`vm/k3s-appliance/`](./vm/k3s-appliance/) (recommended) or [`vm/systemd/`](./vm/systemd/) | **Shipped** — prefer k3s appliance (probes, limits, Secret identity). Runbook E2E: OCI + k3s |
+
+Layout:
+
+| Path | What |
+|---|---|
+| [`kubernetes/`](./kubernetes/) | Existing-cluster installer: `tenant-start.sh`, DaemonSet, NetworkPolicy |
+| [`../agent/agent-deployment.yaml`](../agent/agent-deployment.yaml) | Launcher (`Deployment/agent` + `agent-svc:5004`) — applied by the installers. **Before install:** set `X_ABLV_PRINCIPAL` to your login email (`X-ABLV-Principal`). |
+| [`vm/k3s-appliance/`](./vm/k3s-appliance/) | VM / bare metal (recommended) |
+| [`vm/systemd/`](./vm/systemd/) | VM fallback (single binary) |
+| [`ecs/`](./ecs/) | ECS (coming soon) |
+| `enable-oidc-*.sh` | Common OIDC prep (EKS / RKE2 / k3s) |
 
 ## Kubernetes
 
-**Customer pass-as-is installer:** [`tenant-start.sh`](./tenant-start.sh) +
-[`tenant-start.env.example`](./tenant-start.env.example). Fill Day‑1 values
+**Customer pass-as-is installer:** [`kubernetes/tenant-start.sh`](./kubernetes/tenant-start.sh) +
+[`kubernetes/tenant-start.env.example`](./kubernetes/tenant-start.env.example). Fill Day‑1 values
 from the Connect UI (including Platform NLB as `FABRIC_GATEWAY_ADDRESS`), then
-`./tenant-start.sh ./tenant-start.env`. This is Fabric equivalent of
+`./kubernetes/tenant-start.sh ./kubernetes/tenant-start.env`. This is Fabric equivalent of
 [secure-agent-net `tenant-start.sh`](https://github.com/abluva-research/secure-agent-net/blob/main/agent/tenant-start.sh)
 in *role* only — Fabric Agents dial **out** to the Platform NLB; there is no
 Skupper site, MetalLB, or AccessToken redeem on the customer cluster.
@@ -34,16 +45,19 @@ supported for clusters that were installed before D2-NEW shipped. New
 installs should not use it — the Secret store is strictly better (same
 survival guarantees without touching the node filesystem).
 
-Templates underneath: `daemonset.yaml` + `networkpolicy-example.yaml`. The Agent
-binds `0.0.0.0` inside its own pod network namespace (there is no loopback
-boundary between pods to rely on); `networkpolicy-example.yaml` is the ACL,
-restricting which pods may dial it.
+`kubernetes/daemonset.yaml` + `kubernetes/networkpolicy-example.yaml`. Tenant
+namespaces get **isolation** (same namespace + Abluva SaaS namespace; opt-in
+cross-tenant via `abluva.io/cross-tenant=true`). Same-ns pods may dial Agent
+listeners under that policy. Do **not** apply
+`networkpolicy-agent-ingress-optional.yaml` on k3s/kube-router by default — a
+second NetPol on `app=connect-agent` has been observed to REJECT `:9443+`
+(immediate connection refused). The Agent binds `0.0.0.0` inside its pod
+network namespace (no loopback boundary between pods).
 
 The Agent opens one listener per Active registration starting at
-`FABRIC_LISTEN_BASE_PORT` (default 9443), not a fixed pair of ports — widen the
-policy's `endPort` (or list this tenant's actual registration count) to cover
-`FABRIC_LISTEN_BASE_PORT .. FABRIC_LISTEN_BASE_PORT+N-1`. Same range concept the
-ECS security-group example below parameterizes.
+`FABRIC_LISTEN_BASE_PORT` (default 9443). If you opt into the Agent-only
+NetPol, list ports through `FABRIC_LISTEN_BASE_PORT+N-1` (avoid `endPort` on
+older CNIs). Same range concept the ECS security-group example parameterizes.
 
 **Getting a customer app to that listener at all.** The ACL above only says
 *who* may dial the Agent; it doesn't create anything a customer app can
@@ -70,6 +84,16 @@ knowing:
   `fabric.abluva.io/registration-ports` annotation, a JSON map of full
   registration ID → port, e.g. `kubectl get svc connect-agent -o
   jsonpath='{.metadata.annotations}'`.
+- The Agent also POSTs each listen port to Fabric
+  (`POST …/registrations/:id/observed` with `listen_port`). Fabric returns
+  it as **`agent_listen_port`** on `GET /v1/tenants/:id/registrations`.
+  The Connect UI Install env uses the PLATFORM `control-server` row’s
+  `agent_listen_port` as **`CONTROL_SERVER_LISTEN_PORT`**, which
+  `tenant-start.sh` substitutes into
+  [`../agent/agent-deployment.yaml`](../agent/agent-deployment.yaml)
+  (`INFRA_BASE_URL` → `http://connect-agent.<ns>.svc:<port>`). Refresh the
+  Install snippet after the Agent is Connected if the line is still
+  commented.
 
 This requires the RBAC `daemonset.yaml` also ships (`Role`/`RoleBinding`,
 scoped to `get`/`create`/`patch` on `Service` in this one namespace only) —
@@ -79,14 +103,14 @@ path at all, it just means routing beyond the first registration is the
 customer's own responsibility to wire (e.g. hand-writing a Service per
 registration, or a customer-side controller).
 
-## VM / bare-metal (`systemd/`)
+## VM / bare-metal (`vm/systemd/`)
 
 Developer-Reference: the Agent "listens on loopback by default (`127.0.0.1`)... Host-firewall
 templates in the install bundle must deny non-local dial to Agent ports."
 
-- [`connect-agent.service`](./systemd/connect-agent.service) + [`connect-agent.env.example`](./systemd/connect-agent.env.example) — the unit; sets `FABRIC_LISTEN_HOST=127.0.0.1`.
-- [`host-firewall-nftables.example.sh`](./systemd/host-firewall-nftables.example.sh) / [`host-firewall-ufw.example.sh`](./systemd/host-firewall-ufw.example.sh) — defense in depth: deny any non-loopback dial to Agent ports even if the loopback default is ever overridden.
-- [`hosts-writer.sh`](./systemd/hosts-writer.sh) — optional `/etc/hosts` mapping so apps keep ordinary DNS names instead of hardcoding `127.0.0.1:<port>`.
+- [`connect-agent.service`](./vm/systemd/connect-agent.service) + [`connect-agent.env.example`](./vm/systemd/connect-agent.env.example) — the unit; sets `FABRIC_LISTEN_HOST=127.0.0.1`.
+- [`host-firewall-nftables.example.sh`](./vm/systemd/host-firewall-nftables.example.sh) / [`host-firewall-ufw.example.sh`](./vm/systemd/host-firewall-ufw.example.sh) — defense in depth: deny any non-loopback dial to Agent ports even if the loopback default is ever overridden.
+- [`hosts-writer.sh`](./vm/systemd/hosts-writer.sh) — optional `/etc/hosts` mapping so apps keep ordinary DNS names instead of hardcoding `127.0.0.1:<port>`.
 
 ## ECS
 

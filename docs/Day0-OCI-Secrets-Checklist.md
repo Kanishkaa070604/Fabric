@@ -1,12 +1,10 @@
 # Day 0 — `setup-day0.sh` requirements & generation guide (OCI)
 
-Companion to `deploy/platform/setup-day0.sh` and `docs/Operational-Runbook.md` Day 0 (A0–A7).
+Companion to `deploy/platform/day0.sh` (one-shot) and `setup-day0.sh` (secrets only). See `docs/Operational-Runbook.md` Day 0 (A0–A7).
 
-**Fresh install:** secrets **§2–§4**, then every platform service **§5** (list/get, then create if missing). **This session’s checkboxes:** **§6**.
+**Fresh install:** run `deploy/platform/day0.sh` (generates PEMs, Secrets, Gateway / Fabric CP / dns-webhook, Ambient). **This session’s checkboxes:** **§6**.
 
-**Critical rule:** the script does **not** create certificate files.  
-Any cert-related Secret is applied only if you pass **paths to PEMs that already exist**.  
-Tokens and DNS webhook token are generated automatically if you leave those env vars unset.
+**Tokens** (writer, dual-control, Gateway, revoke-push, DNS webhook) are generated automatically if you leave those env vars unset. NLB + public DNS stay outside the script (OCI / Cloudflare).
 
 ---
 
@@ -609,7 +607,7 @@ Agents on a VM cannot use `*.svc.cluster.local`. Same pattern as prior Mesh OCI 
 
 ### Done — Connect Agent on tenant VM (Day 1)
 
-k3s appliance on `aarav-ai` (`deploy/connect-agent/k3s-appliance/`).
+k3s appliance on `aarav-ai` (`deploy/connect-agent/vm/k3s-appliance/`).
 
 1. Build/push Agent image for the VM arch (x86_64 → **amd64**):
    ```bash

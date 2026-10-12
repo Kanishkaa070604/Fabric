@@ -123,7 +123,11 @@ spec:
           image: your-registry/connect-agent:REPLACE
           imagePullPolicy: IfNotPresent
           securityContext:
+            # Distroless USER nonroot is a name; kubelet needs a numeric UID
+            # when runAsNonRoot is set (CreateContainerConfigError otherwise).
             runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:

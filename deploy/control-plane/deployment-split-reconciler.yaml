@@ -96,6 +96,8 @@ spec:
             # Must match the Gateway's FABRIC_GATEWAY_INBOUND_DOMAIN.
             - name: FABRIC_GATEWAY_INBOUND_DOMAIN
               value: connect.abluva.com
+            - name: FABRIC_GATEWAY_INBOUND_PORT
+              value: "8444"
             # L3-DNS-02: intentionally absent here. Set only on the
             # fabric-control-plane-dns-reconciler Deployment below.
             # - name: FABRIC_DNS_RECONCILE_ENABLED
@@ -168,6 +170,8 @@ spec:
             # Must match the Gateway's FABRIC_GATEWAY_INBOUND_DOMAIN.
             - name: FABRIC_GATEWAY_INBOUND_DOMAIN
               value: connect.abluva.com
+            - name: FABRIC_GATEWAY_INBOUND_PORT
+              value: "8444"
             # The one flag that makes this Deployment different from the
             # general one above. HOSTNAME (Kubernetes sets this to the pod
             # name automatically) is logged on every dns_reconciler_started

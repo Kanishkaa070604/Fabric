@@ -207,7 +207,7 @@ The frozen sequence, in the order it actually happens:
 5. From that point on, the Connect Agent Pod mounts a **kubelet-projected**
    service account token (audience `abluva-connect`) at
    `FABRIC_EVIDENCE_PATH` (default `/var/run/abluva/evidence/token`) — see
-   `deploy/connect-agent/daemonset.yaml`. Fabric never writes that file via
+   `deploy/connect-agent/kubernetes/daemonset.yaml`. Fabric never writes that file via
    API; kubelet rotates it. The Agent only reads bytes and puts them on
    StreamOpen.
 6. The Gateway verifies those opaque bytes for attribution only. Verification

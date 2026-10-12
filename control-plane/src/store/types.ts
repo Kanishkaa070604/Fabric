@@ -245,6 +245,8 @@ export type Registration = {
       observed_generation: number;
       condition: string;
       reachable?: "true" | "false" | "unknown";
+      /** Agent-local StreamOpen listen port (Customer→Platform dial). */
+      listen_port?: number;
       reported_at: string;
     }
   >;
@@ -570,6 +572,8 @@ export interface FabricStore {
       condition: string;
       reachable?: "true" | "false" | "unknown";
       observed_generation: number;
+      /** When set, Agent-local listen port for this registration. */
+      listen_port?: number;
     },
     actor: string
   ): Promise<Registration>;
@@ -698,23 +702,60 @@ export function slugifyDisplayName(name: string): string {
   return slug || "unnamed";
 }
 
+/** True when `s` is a UUID string safe for PG UUID columns / findByPk. */
+export function isUuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    s
+  );
+}
+
 /** Registration JSON + G-A3-1 inbound DNS names for CUSTOMER_* destinations. */
 export function publicRegistration(
   r: Registration,
-  domainSuffix = "connect.fabric"
+  domainSuffix = "connect.fabric",
+  /** Gateway inbound listen port (FABRIC_GATEWAY_INBOUND_LISTEN / NLB :8444). */
+  inboundListenPort = 8444
 ) {
   const isInbound = isInboundDestination(r.destination_kind);
+  const inbound_hostname = isInbound
+    ? inboundHostname(r.id, r.tenant_id, domainSuffix)
+    : null;
+  // Convention-driven friendly hostname (what SaaS services construct
+  // at runtime from display_name + tenant_id, no lookup needed).
+  const inbound_hostname_friendly = isInbound
+    ? inboundHostnameByName(r.display_name, r.tenant_id, domainSuffix)
+    : null;
+  const dialUrl = (host: string | null): string | null =>
+    host ? `https://${host}:${inboundListenPort}` : null;
   return {
     ...r,
-    inbound_hostname: isInbound
-      ? inboundHostname(r.id, r.tenant_id, domainSuffix)
-      : null,
-    // Convention-driven friendly hostname (what SaaS services construct
-    // at runtime from display_name + tenant_id, no lookup needed).
-    inbound_hostname_friendly: isInbound
-      ? inboundHostnameByName(r.display_name, r.tenant_id, domainSuffix)
-      : null,
+    inbound_hostname,
+    inbound_hostname_friendly,
+    inbound_listen_port: isInbound ? inboundListenPort : null,
+    // Ready-to-copy base URLs for platform apps (control-server env). Append
+    // the app path (e.g. /api/v1/launcher/create). Null for PLATFORM_*.
+    platform_dial_url: dialUrl(inbound_hostname),
+    platform_dial_url_friendly: dialUrl(inbound_hostname_friendly),
+    // Customer→Platform: Agent StreamOpen port (9443+). Null until an Agent
+    // reports listen_port via POST …/observed. Distinct from `port` (platform dest).
+    agent_listen_port: agentListenPortFromObserved(r),
   };
+}
+
+/** Latest Agent-reported local listen port from registration.observed. */
+export function agentListenPortFromObserved(r: Registration): number | null {
+  let best: { port: number; at: string } | null = null;
+  for (const o of Object.values(r.observed || {})) {
+    const p = o.listen_port;
+    if (typeof p !== "number" || !Number.isInteger(p) || p < 1 || p > 65535) {
+      continue;
+    }
+    const at = o.reported_at || "";
+    if (!best || at >= best.at) {
+      best = { port: p, at };
+    }
+  }
+  return best?.port ?? null;
 }
 
 /**

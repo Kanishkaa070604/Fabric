@@ -1,0 +1,122 @@
+# Tenant namespace isolation (hybrid). Applied by tenant-start.sh.
+# Does not apply to the Abluva SaaS namespace — only tenant namespaces.
+#
+# Pods here may:
+#   - talk to other pods in this namespace
+#   - talk to pods in the Abluva SaaS namespace (labeled abluva.io/saas=true)
+#   - talk to opt-in cross-tenant peers (pod + namespace label
+#     abluva.io/cross-tenant=true)
+#
+# Egress to the public internet is allowed so Connect Agent can dial the
+# Fabric Gateway. Cluster-private ranges are excluded from that CIDR so
+# other tenant namespaces stay denied unless they match the rules above.
+#
+# Placeholders replaced at apply: TENANT_NAMESPACE, SAAS_NAMESPACE
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-namespace-isolation
+  namespace: TENANT_NAMESPACE
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              abluva.io/saas: "true"
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: SAAS_NAMESPACE
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              abluva.io/tenant: "true"
+          podSelector:
+            matchLabels:
+              abluva.io/cross-tenant: "true"
+  egress:
+    - to:
+        - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              abluva.io/saas: "true"
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: SAAS_NAMESPACE
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              abluva.io/tenant: "true"
+          podSelector:
+            matchLabels:
+              abluva.io/cross-tenant: "true"
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+        # k3s/RKE2 apiserver pods (when ClusterIP routes to them)
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # Kubernetes API — Agent Service reconcile + identity Secrets.
+    # k3s: kubernetes.default ClusterIP is usually 10.43.0.1:443, then DNAT to
+    # node:6443. Allow both service CIDR and private node ranges on 443/6443
+    # or reconcile fails with: dial tcp 10.43.0.1:443: connection refused
+    # and fabric.abluva.io/registration-ports never appears.
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    - to:
+        - ipBlock:
+            cidr: 172.16.0.0/12
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    - to:
+        - ipBlock:
+            cidr: 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+# Agent-only NetPol (connect-agent-ingress) is NOT in this file — it breaks
+# listener dials on some k3s/kube-router CNIs. See
+# networkpolicy-agent-ingress-optional.yaml (opt-in after smoke test).

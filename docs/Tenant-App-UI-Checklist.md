@@ -110,20 +110,20 @@ Show this mental model in onboarding help / tooltips. Full ops detail:
 Agent). See Runbook [Pure SaaS tenants](Operational-Runbook.md#pure-saas-tenants-no-connect-agent).
 
 UI owns control-plane steps. **Customer-cluster install stays script/manifest**
-(`deploy/connect-agent/daemonset.yaml`, ECS/VM bundle). The UI issues the
+(`deploy/connect-agent/kubernetes/daemonset.yaml`, ECS/VM bundle). The UI issues the
 token and trust bundle, then hands the operator a paste-ready snippet.
 
 | Step | Surface | Owner | API / artifact | Copy / rules |
 |---|---|---|---|---|
 | 1 | Open / ensure Fabric profile | UI | `POST /v1/tenants/ensure`, `GET /v1/tenants/:id` | SaaS tenant row must already exist (outside Fabric) |
-| 2 | **Ask install flavor** (what infrastructure hosts the Agent) | UI (product input, first real question of the wizard) | — | Values: **Kubernetes** / **VM or bare metal** (k3s appliance recommended) today; **ECS** / **Docker** coming soon. This is **UI onboarding state only** — see [Install flavor vs agent.substrate](#install-flavor-wizard-row-2-vs-agentsubstrate). Wrong flavor → wrong install snippet. |
-| 3 | Planned Agent instance count | UI (product input) | — | K8s: DaemonSet node count. ECS: task count. VM/Docker: host count. Depends on the substrate chosen in step 2. |
-| 4 | Set `max_tunnels` ≥ planned count | UI | `POST /v1/tenants/:id/quotas` | Global default stays **50**; do not silently raise it for everyone |
-| 5 | Issue bootstrap token (copy-once) | UI | `POST /v1/tenants/:id/bootstrap-token` | Show `bootstrap_expires_at`. Multi-redeem for the whole window; revoke if leaked |
-| 6 | Download **CA trust** only | UI | Install-bundle / `ca.crt` | Label: trust bundle, **not** the Agent leaf |
-| 7 | Show install snippet for the substrate chosen in step 2 | UI embeds / links | **Kubernetes:** `deploy/connect-agent/tenant-start.sh` + filled `tenant-start.env` (a Helm chart is **planned, not yet shipped** — do not offer it as an option today). **VM / bare metal:** the k3s appliance installer (`deploy/connect-agent/k3s-appliance/install.sh`) is the recommended default — it gives probes, resource limits, and rolling-update handling that the plain systemd single-binary path (`deploy/connect-agent/systemd/`) does not. **ECS:** only a security-group template is shipped (`deploy/connect-agent/ecs/security-group.example.json`) — the full task-definition is blocked on `L3-POC-ECS`; **do not offer ECS as a wizard option until that ships.** **Docker:** no `docker-compose.yml` install artifact exists for the Agent yet — **do not offer Docker as a wizard option today.** | Operator runs the one command shown. No shared `tls.crt`/`tls.key` in any snippet. Secret keys (K8s): `ca.crt`, `bootstrap_token`. No separate Agent API seed needed — the Agent derives its bearer from the leaf cert after enrollment. `FABRIC_GATEWAY_ADDRESS` = Platform NLB from ops Step 5b. **K8s identity (required copy):** identity is stored in a per-node **Kubernetes Secret** (`FABRIC_IDENTITY_STORE=kubernetes`, the default) — no `hostPath`, no Pod Security exception needed. If a fleet was installed before this default shipped, the legacy `hostPath` volume is still supported (`FABRIC_IDENTITY_STORE=file`); see `PRODUCTION-READINESS.md` D2-NEW. |
+| 2 | **Ask install flavor** (what infrastructure hosts the Agent) | UI — Subscriptions wizard **Connect Agent** tab | — | Values: **Kubernetes** / **VM or bare metal** (k3s appliance recommended) today; **ECS** / **Docker** coming soon (disabled in the dropdown). This is **UI onboarding state only** — see [Install flavor vs agent.substrate](#install-flavor-wizard-row-2-vs-agentsubstrate). Wrong flavor → wrong install snippet. |
+| 3 | Planned Agent instance count | UI — same tab | — | K8s: DaemonSet **node** count. VM: **host** count. Dropdown; must be ≤ `max_tunnels`. |
+| 4 | Set `max_tunnels` | UI — same tab | `POST /v1/tenants/:id/quotas` | Default **50**; UI range **1–50**. Must be ≥ planned count. |
+| 5 | Issue bootstrap token (copy-once) | UI — same tab | `POST /v1/tenants/:id/bootstrap-token` | Show `bootstrap_expires_at` (~7 days). Multi-redeem for the whole window; revoke if leaked |
+| 6 | Download **CA trust** only | UI — same tab | `GET /v1/ca-bundle` | Label: trust bundle, **not** the Agent leaf (`ca.crt`) |
+| 7 | Show install snippet for the substrate chosen in step 2 | UI — same tab | **Kubernetes:** env for `tenant-start.sh`. **VM / bare metal:** env for `k3s-appliance/install.sh`. | Copy / download. Operator runs on their side. When known, include **`CONTROL_SERVER_LISTEN_PORT`** from Fabric `GET …/registrations` → PLATFORM `control-server`.`agent_listen_port` (Agent POSTs `listen_port` on observed after listeners are up). Until then leave commented; UI **Refresh** after Agent Connected. Maps to launcher `INFRA_BASE_URL` via `<control-server-listen-port>` in `deploy/agent/agent-deployment.yaml`. |
 | 8a | **Enable Platform service catalog** (fixed SaaS destinations) | UI + Day‑1 script | Catalog table (UI/product-owned) → `POST /v1/registrations` per selected row | See [Platform service catalog](#platform-service-catalog--day1-seed). This is the normal path for known SaaS services (`discovery`, `catalogue`, …) — **not** a one-off optional curl. |
-| 8b | Create **customer** destinations | UI | `POST /v1/registrations` | **Required when** this env exposes customer-side targets Platform/hairpin must reach (`CUSTOMER_SERVICE` / `CUSTOMER_RESOURCE`). **Skip** when Platform-outbound-only (catalog 8a only). Surface `inbound_hostname`. Copy: “Allow ~5–10 seconds after create before the first dial (Agent poll).” |
+| 8b | Create **customer** destinations | UI — Connect Agent tab, **after Agent is Connected / Connecting** | Tenant app `POST /fabric/customer-registrations` (BFF holds writer token) → Fabric `POST /v1/registrations` `CUSTOMER_SERVICE` | Button stays disabled until an Agent is approved. Register each target **only after** that Service exists in the tenant ns (default install: `agent-launcher` → `agent-svc:5004`). Deploy privacy before registering `data-privacy-svc:8080`. **On success, show `host:port`** (friendly inbound + listen port) — see [Customer reg success — host:port](#customer-reg-success--hostport-for-platform-use). Operators use `https://host:port` as resource `base_url`; launcher create uses endpoint `api/v1/launcher/create`. Gate on `observed.reachable=true`. Skip if Platform-outbound-only. |
 | 9 | Approve Agent(s) | UI | `GET …/agents`, `POST /v1/agents/:id/approve` | **Default `auto_approve_agents=false`** — a new Agent is `PendingApproval` until Approve. Skip this step only if the tenant opted into auto-approve. |
 
 Optional high-security control: `POST /v1/tenants/:id/auto-approve` `{ "enabled": false }` — manual approve per enroll.
@@ -141,14 +141,22 @@ service.
 
 | Catalog key | `display_name` | `destination_kind` | `connectivity_type` | `host` (Platform cluster DNS) | `port` | Default on? |
 |---|---|---|---|---|---|---|
-| `discovery` | `discovery` | `PLATFORM_SERVICE` | `SERVICE` | `discovery.<saas-ns>.svc.cluster.local` | `8080` | yes |
-| `catalogue` | `catalogue` | `PLATFORM_SERVICE` | `SERVICE` | `catalogue.<saas-ns>.svc.cluster.local` | `8080` | yes |
-| *(add rows as Platform ships services)* | … | `PLATFORM_SERVICE` or `PLATFORM_RESOURCE` | … | … | … | … |
+| `t1_control_server` | `control-server` | `PLATFORM_SERVICE` | `SERVICE` | hostname of `REACT_APP_API_URL` (`control-server-svc.<saas-ns>.svc.cluster.local`) | `5001` | yes |
+| `t2_unified_access` | `unified-access` | `PLATFORM_SERVICE` | `SERVICE` | hostname of `INFRA_LIB_URL` (`unified-access-service.<saas-ns>.svc.cluster.local`) | `3100` | yes |
+| `t3_fabric_control_plane` | `fabric-control-plane` | `PLATFORM_SERVICE` | `SERVICE` | `fabric-control-plane.<saas-ns>.svc.cluster.local` (`deploy/control-plane/deployment.yaml`) | `8080` | yes |
+| `t4_fabric_gateway` | `fabric-gateway` | `PLATFORM_SERVICE` | `SERVICE` | `fabric-gateway.fabric-control.svc.cluster.local` (`deploy/gateway/deployment.yaml`) | `8443` | yes |
 
-Concrete host/port/ns values are **Platform config** (same values for every
-tenant). Keep the table in the Tenant UI’s config (or a checked-in Day‑1
-manifest the script reads) — Fabric’s contract remains plain
-`POST /v1/registrations`.
+Concrete host/port come from the SaaS `control-server-config` ConfigMap
+(`k8s/control-plane.yaml`) and from Fabric k8s Services. **Do not**
+register path suffixes (`/api/v1/control`, `/v1/access`, `/v1/agents/enroll`,
+`/v1/registrations`, `/v1/agents/:id/rotate`, `/v1/agents/:id/api-token/current`).
+The Agent uses those HTTP paths on **public** `FABRIC_CONTROL_PLANE_URL`;
+the registration is only `fabric-control-plane:8080`. Gateway is raw mTLS
+TCP on `:8443`, not HTTP.
+Fabric’s contract: at tenant create, BFF seeds with `POST /v1/registrations`
+per catalog row (Fabric `createRegistration` ensures the tenant profile).
+Do **not** re-call `POST /v1/tenants/ensure` on quotas / bootstrap / CA —
+those Fabric handlers already call `ensureTenant` internally.
 
 **UX (wizard row 8a):**
 
@@ -161,13 +169,52 @@ manifest the script reads) — Fabric’s contract remains plain
 4. Completion: task `platform_catalog_seeded` — every enabled catalog key has
    an Active `PLATFORM_*` registration for this tenant.
 
-**Not the catalog:** customer Postgres / `sec-interface` / other
-`CUSTOMER_*` destinations are row **8b**. They are not “optional decorations”
-— they are **required whenever this environment exposes something on the
-customer side** that Platform (or hairpin) must dial. They are simply a
-**different kind of destination** from the fixed SaaS catalog: host/port are
-customer-owned and vary per tenant. If an environment only calls out to
-Platform services and never receives inbound Fabric traffic, skip 8b.
+**Not the catalog (row 8b — customer registration):** when **platform**
+apps must call **into** the customer cluster (e.g. launcher create, privacy),
+register `CUSTOMER_SERVICE` / `CUSTOMER_RESOURCE` with the **in-cluster DNS
+name the Connect Agent can dial** — for the default `tenant-start.sh` path
+that is `agent-svc`:`5004` (launcher). If you ship privacy, deploy
+`deploy/privacy/` first, then register `data-privacy-svc`:`8080`. Do **not**
+register a host that does not resolve in the tenant namespace (Agent posts
+`observed.reachable=false` → Gateway `destination_unavailable`).
+Customer→Platform is the opposite: apps dial
+`connect-agent.<ns>.svc:<listener-port>` (catalog PLATFORM regs).
+Do **not** seed 8b at tenant create. Skip 8b if the env never receives
+inbound Fabric traffic.
+
+### Customer reg success — host:port for platform use
+
+Fabric `POST /v1/registrations` (and GET / list) return for `CUSTOMER_*`:
+
+- `inbound_hostname` / `inbound_hostname_friendly` — hostnames only
+- `inbound_listen_port` — `8444` (Gateway inbound)
+- Also available: `platform_dial_url` / `platform_dial_url_friendly` (`https://host:port`) if a client prefers a ready URL
+
+**Connect Agent tab UI** shows after create (and on reload):
+
+```text
+agent-launcher: Active → agent-launcher.<tenant-id>.connect.abluva.com:8444
+```
+
+Operators build `https://` + that `host:port` themselves and append product paths.
+
+**Register launcher resource (platform):** take `host:port` from the Connect Agent tab for `agent-launcher`, then:
+
+| Field | Value |
+|---|---|
+| **base_url** | `https://` + `host:port` from Connect Agent tab |
+| **endpoint** | `api/v1/launcher/create` |
+
+Example:
+
+```json
+{
+  "base_url": "https://agent-launcher.5d5fcf62-9efa-48d1-9132-e3becf4436e5.connect.abluva.com:8444",
+  "endpoint": "api/v1/launcher/create"
+}
+```
+
+Do **not** use form `host`/`port` (`agent-svc:5004`) in platform resource config — those are Agent-local dial targets only.
 
 ### Install flavor (wizard row 2) vs `agent.substrate` — no contradiction
 
@@ -183,8 +230,8 @@ Different infrastructures use **different artifacts** in this repo:
 
 | Wizard answer (install flavor) | Artifact the UI shows / links |
 |---|---|
-| Kubernetes cluster (EKS, RKE2, GKE, …) | `deploy/connect-agent/tenant-start.sh` + DaemonSet (`daemonset.yaml`) |
-| VM / bare metal | `deploy/connect-agent/k3s-appliance/install.sh` (recommended) — not the same as the K8s DaemonSet apply |
+| Kubernetes cluster (EKS, RKE2, GKE, …) | `deploy/connect-agent/kubernetes/tenant-start.sh` + DaemonSet (`daemonset.yaml`) |
+| VM / bare metal | `deploy/connect-agent/vm/k3s-appliance/install.sh` (recommended) — not the same as the K8s DaemonSet apply |
 | ECS / Docker | Not shipped yet — hide or “coming soon” |
 
 Without asking, the UI cannot know whether to give the operator a
@@ -294,7 +341,7 @@ Optional disclosures (`L3-DOC-01..03`): plaintext/`tls_mode`, ACL-skip residual 
 | UI need | Why | API | Copy / rules |
 |---|---|---|---|
 | List + state badge | Failed must be obvious | `GET /v1/tenants/:id/registrations` | |
-| Create | Day‑N adds | `POST /v1/registrations` | Prefer catalog-driven `PLATFORM_*` for known SaaS services (§1 row 8a); free-form create for `CUSTOMER_*`. Show `inbound_hostname` for Active `CUSTOMER_*` |
+| Create | Day‑N adds | `POST /v1/registrations` | Prefer catalog-driven `PLATFORM_*` for known SaaS services (§1 row 8a); free-form create for `CUSTOMER_*`. For `CUSTOMER_*`, **must** show `host:port` on success ([below](#customer-reg-success--hostport-for-platform-use)). |
 | **Edit** on Active | In-place update | `POST …/update` | Validation error → leave Active unchanged (§G.5) |
 | **Retry** on `Failed` only | Production recovery | `POST …/retry` | **Not a scheduled job.** Hide unless `Failed`. Show new `generation` |
 | **Delete / abandon** | Explicit teardown | `POST …/delete` | Confirm: loses id + inbound DNS name |

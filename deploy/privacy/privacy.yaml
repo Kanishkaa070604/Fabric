@@ -1,0 +1,85 @@
+# Hybrid: customer-side Data Privacy (Pseudonymizer) — aligned with
+# abluva-infra-api/k8s/privacy.yaml + saas-privacy.yaml env shape.
+# Replace placeholders:
+#   <tenant-namespace>
+#   <control-server-listen-port>  <unified-access-listen-port>
+#   <TENANT_ID_PLACEHOLDER>  <ENVIRONMENT_ID_PLACEHOLDER>
+#   <PRINCIPAL_PLACEHOLDER>
+#   <SAAS_TENANT_ID_PLACEHOLDER>  <SAAS_ENVIRONMENT_ID_PLACEHOLDER>
+# Platform URLs: http://connect-agent.<ns>.svc:<listener-port>/… (Customer→Platform)
+# No RBAC — this service does not call the Kubernetes API.
+# Not applied by Connect Agent installers — apply this YAML separately.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: data-privacy-sa
+  namespace: <tenant-namespace>
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-privacy
+  namespace: <tenant-namespace>
+  labels:
+    tier: data-privacy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      tier: data-privacy
+  template:
+    metadata:
+      labels:
+        tier: data-privacy
+        abluva.io/connect-consumer: "true"
+    spec:
+      serviceAccountName: data-privacy-sa
+      automountServiceAccountToken: false
+      containers:
+        - name: data-privacy-container
+          image: phx.ocir.io/axsfgj15p1je/pseudonymizer:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            # Customer→Platform via Connect Agent (not SaaS in-cluster DNS).
+            - name: BROKER_URL
+              value: "http://connect-agent.<tenant-namespace>.svc.cluster.local:<unified-access-listen-port>"
+            - name: DB_SSL_MODE
+              value: "require"
+            - name: CONTROL_STORE_OUTPUT_ENDPOINT
+              value: "http://connect-agent.<tenant-namespace>.svc.cluster.local:<control-server-listen-port>/task-template-instances/update-task-output"
+            - name: X_ABLV_TENANT_ID
+              value: "<TENANT_ID_PLACEHOLDER>"
+            - name: X_ABLV_ENVIRONMENT_ID
+              value: "<ENVIRONMENT_ID_PLACEHOLDER>"
+            - name: X_ABLV_PRINCIPAL
+              value: "<PRINCIPAL_PLACEHOLDER>"
+            - name: X_SAAS_TENANT_ID
+              value: "<SAAS_TENANT_ID_PLACEHOLDER>"
+            - name: X_SAAS_ENVIRONMENT_ID
+              value: "<SAAS_ENVIRONMENT_ID_PLACEHOLDER>"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-privacy-svc
+  namespace: <tenant-namespace>
+  labels:
+    tier: data-privacy
+spec:
+  type: ClusterIP
+  selector:
+    tier: data-privacy
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080

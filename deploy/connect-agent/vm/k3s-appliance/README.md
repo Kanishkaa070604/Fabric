@@ -53,6 +53,8 @@ k3s kubectl -n fabric-edge logs -l app=connect-agent --tail=50
 # Port map:
 #   k3s kubectl -n fabric-edge get svc connect-agent \
 #     -o jsonpath='{.metadata.annotations.fabric\.abluva\.io/registration-ports}'
+# Prefer CONTROL_SERVER_LISTEN_PORT from Connect UI Install (Fabric
+# control-server.agent_listen_port) after Agent Connected → Refresh.
 # (Host-OS apps need NodePort/hostPort — ClusterIP is in-cluster only.)
 ```
 
@@ -72,11 +74,13 @@ This removes k3s, its data, and all Fabric components cleanly.
 2. Creates namespace `fabric-edge` with RBAC for Secret + Service management
 3. Deploys the same `connect-agent` DaemonSet manifest as the full K8s path,
    with `FABRIC_IDENTITY_STORE=kubernetes` (per-node Secret for identity)
-4. Waits for the Agent pod to reach Running state
+4. Applies sibling `agent/agent-deployment.yaml` (`<tenant-namespace>`, `<tenantId>`, `<envid>`), then tenant NetworkPolicy. Set `X_ABLV_PRINCIPAL` in that YAML to your login email before install (sent as `X-ABLV-Principal`).
+5. Waits for the Connect Agent pod to reach Running state
 
 The customer never needs to interact with k3s directly. `k3s kubectl` is
-available for debugging, but the normal path is: install → approve in UI →
-create registrations → apps dial `connect-agent.fabric-edge.svc…:<port>`.
+available for debugging, but the normal path is: install → wait until Agent
+is **Connected** (Approve only if PendingApproval) → customer registrations
+(`agent-svc:5004` for launcher) → apps dial `connect-agent.fabric-edge.svc…:<port>`.
 
 ## Environment File Format
 
@@ -97,5 +101,5 @@ just consumed by this installer instead.
 - ~60MB disk for k3s + ~100MB for Agent image
 
 **Canonical E2E (OCI OKE Platform → Linux VM customer):**  
-[`docs/Operational-Runbook.md`](../../../docs/Operational-Runbook.md) →
+[`docs/Operational-Runbook.md`](../../../../docs/Operational-Runbook.md) →
 **End-to-end: OCI (OKE) + Linux VM (k3s appliance)**.

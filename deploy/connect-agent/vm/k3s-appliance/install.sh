@@ -44,9 +44,13 @@
 # ============================================================
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # --- Defaults ---
 K3S_VERSION="${K3S_VERSION:-}"  # empty = latest stable
 AGENT_IMAGE="${AGENT_IMAGE:-ghcr.io/abluva/connect-agent:latest}"
+AGENT_DEPLOY_YAML="${AGENT_DEPLOY_YAML:-$SCRIPT_DIR/../../../agent/agent-deployment.yaml}"
+SAAS_NAMESPACE="${SAAS_NAMESPACE:-3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c}"
 NAMESPACE="fabric-edge"
 FABRIC_IDENTITY_STORE="kubernetes"
 
@@ -95,6 +99,7 @@ if [[ -n "$ENV_FILE" ]]; then
   CONTROL_PLANE_URL="${CONTROL_PLANE_URL:-${FABRIC_CONTROL_PLANE_URL:-}}"
   TENANT_ID="${TENANT_ID:-${FABRIC_TENANT_ID:-}}"
   TLS_SERVER_NAME="${TLS_SERVER_NAME:-${FABRIC_TLS_SERVER_NAME:-}}"
+  ENVIRONMENT_ID="${ENVIRONMENT_ID:-}"
 fi
 
 # Validate required args
@@ -102,9 +107,10 @@ fi
 [[ -n "$GATEWAY_ADDRESS" ]] || { echo "ERROR: --gateway is required"; usage; }
 [[ -n "$CONTROL_PLANE_URL" ]] || { echo "ERROR: --control-plane is required"; usage; }
 [[ -n "$TENANT_ID" ]] || { echo "ERROR: --tenant-id is required"; usage; }
+[[ -n "${ENVIRONMENT_ID:-}" ]] || { echo "ERROR: ENVIRONMENT_ID is required"; exit 1; }
 
 # --- Step 1: Install k3s ---
-echo "[1/5] Installing k3s..."
+echo "[1/6] Installing k3s..."
 if command -v k3s >/dev/null 2>&1; then
   echo "  k3s already installed: $(k3s --version | head -1)"
 else
@@ -132,7 +138,7 @@ done
 k3s kubectl get nodes >/dev/null 2>&1 || { echo "ERROR: k3s API server not ready after 120s"; exit 1; }
 
 # --- Step 2: Fetch CA bundle ---
-echo "[2/5] Setting up CA trust bundle..."
+echo "[2/6] Setting up CA trust bundle..."
 CA_CONTENT=""
 if [[ -n "$CA_FILE" ]]; then
   CA_CONTENT=$(cat "$CA_FILE")
@@ -145,8 +151,15 @@ else
 fi
 
 # --- Step 3: Create namespace + secrets ---
-echo "[3/5] Creating namespace and secrets..."
-k3s kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | k3s kubectl apply -f -
+echo "[3/6] Creating namespace and secrets..."
+k3s kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NAMESPACE}
+  labels:
+    abluva.io/tenant: "true"
+EOF
 
 if [[ -n "$CA_CONTENT" ]]; then
   k3s kubectl -n "$NAMESPACE" create secret generic connect-agent-tls \
@@ -154,12 +167,21 @@ if [[ -n "$CA_CONTENT" ]]; then
     --dry-run=client -o yaml | k3s kubectl apply -f -
 fi
 
-k3s kubectl -n "$NAMESPACE" create secret generic fabric-edge-bootstrap \
+# Upsert bootstrap: re-run with --token=... overwrites the Secret.
+# Enrolled Agents ignore bootstrap. New Agent pods read the new token at start.
+_bs_yaml="$(k3s kubectl -n "$NAMESPACE" create secret generic fabric-edge-bootstrap \
   --from-literal=bootstrap_token="$BOOTSTRAP_TOKEN" \
-  --dry-run=client -o yaml | k3s kubectl apply -f -
+  --dry-run=client -o yaml)"
+if k3s kubectl -n "$NAMESPACE" get secret fabric-edge-bootstrap >/dev/null 2>&1; then
+  echo "$_bs_yaml" | k3s kubectl -n "$NAMESPACE" replace -f -
+  echo "[OK] fabric-edge-bootstrap updated (new enrolls use this token)."
+else
+  echo "$_bs_yaml" | k3s kubectl -n "$NAMESPACE" apply -f -
+  echo "[OK] fabric-edge-bootstrap created."
+fi
 
 # --- Step 4: Deploy Connect Agent ---
-echo "[4/5] Deploying Connect Agent..."
+echo "[4/6] Deploying Connect Agent..."
 NO_PROXY_VALUE="${GATEWAY_ADDRESS%%:*},localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.svc.cluster.local"
 
 cat <<EOF | k3s kubectl apply -f -
@@ -280,8 +302,28 @@ spec:
           emptyDir: {}
 EOF
 
-# --- Step 5: Wait for Agent to be ready ---
-echo "[5/5] Waiting for Agent to start..."
+echo "[5/6] Applying agent launcher..."
+if [[ ! -f "$AGENT_DEPLOY_YAML" ]]; then
+  echo "ERROR: missing $AGENT_DEPLOY_YAML (agent/ must sit next to connect-agent/)"
+  exit 1
+fi
+CS_PORT="${CONTROL_SERVER_LISTEN_PORT:-<control-server-listen-port>}"
+sed -e "s/<tenant-namespace>/${NAMESPACE}/g" \
+    -e "s/<tenantId>/${TENANT_ID}/g" \
+    -e "s/<envid>/${ENVIRONMENT_ID}/g" \
+    -e "s/<control-server-listen-port>/${CS_PORT}/g" \
+    "$AGENT_DEPLOY_YAML" | k3s kubectl apply -f -
+echo "  [OK] agent-deployment.yaml applied (INFRA_BASE_URL → connect-agent:${CS_PORT})."
+NP_YAML="${NP_YAML:-$SCRIPT_DIR/../../kubernetes/networkpolicy-example.yaml}"
+if [[ -f "$NP_YAML" ]]; then
+  sed -e "s/TENANT_NAMESPACE/${NAMESPACE}/g" \
+      -e "s/SAAS_NAMESPACE/${SAAS_NAMESPACE}/g" \
+    "$NP_YAML" | k3s kubectl apply -f -
+  echo "  [OK] NetworkPolicy applied."
+fi
+
+# --- Step 6: Wait for Agent to be ready ---
+echo "[6/6] Waiting for Agent to start..."
 for i in $(seq 1 60); do
   if k3s kubectl -n "$NAMESPACE" get pods -l app=connect-agent --field-selector=status.phase=Running 2>/dev/null | grep -q Running; then
     echo ""
@@ -292,13 +334,24 @@ for i in $(seq 1 60); do
     echo "  Logs:     k3s kubectl -n $NAMESPACE logs -l app=connect-agent"
     echo "  Uninstall: /usr/local/bin/k3s-uninstall.sh"
     echo ""
-    echo "  Next steps:"
-    echo "    1. Approve the Agent in the Abluva UI"
-    echo "    2. Create registrations for your services"
-    echo "    3. Point apps (pods on this k3s) at:"
+    echo "  Next steps (Abluva Connect UI):"
+    echo "    1. Wait until Connect Agent is Connected (Approve only if PendingApproval)."
+    echo "    2. Customer registrations → Create, e.g. agent-launcher:"
+    echo "         host=agent-svc  port=5004"
+    echo "       (launcher Service this installer applied in $NAMESPACE)"
+    echo "    3. After Create, copy host:port from Connect tab (e.g."
+    echo "         agent-launcher.<tenant-id>.connect.abluva.com:8444)."
+    echo "       Register Resource type agent#https:"
+    echo "         base_url  = https:// + that host:port"
+    echo "         endpoint = api/v1/launcher/create"
+    echo "       (Do not use agent-svc ClusterIP in platform resource config.)"
+    echo "    3b. Launcher INFRA_BASE_URL (Customer→Platform):"
+    echo "         http://connect-agent.$NAMESPACE.svc.cluster.local:<control-server-port>"
+    echo "       Port from: kubectl -n $NAMESPACE get svc connect-agent -o jsonpath='{.metadata.annotations}'"
+    echo "    4. After regs are Active, in-cluster apps dial:"
     echo "         connect-agent.$NAMESPACE.svc.cluster.local:<port>"
     echo "       Port map:"
-    echo "         k3s kubectl -n $NAMESPACE get svc connect-agent -o jsonpath='{.metadata.annotations.fabric\\.abluva\\.io/registration-ports}'"
+    echo "         k3s kubectl -n $NAMESPACE get svc connect-agent -o jsonpath='{.metadata.annotations}'"
     echo "       (Host-OS apps need NodePort/hostPort — ClusterIP is in-cluster only.)"
     echo "============================================================"
     exit 0

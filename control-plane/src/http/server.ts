@@ -10,7 +10,12 @@ import {
 } from "../store/types";
 import { discoverOidcIssuer } from "../oidc/discovery";
 import { loadGatewayPushConfig, pushRevoke, type GatewayPushConfig } from "../gatewayPush";
-import { issueLeafFromCsr, loadAgentCA, type AgentCA } from "../pki/issueLeaf";
+import {
+  issueLeafFromCsr,
+  loadAgentCA,
+  loadGatewayTrustPem,
+  type AgentCA,
+} from "../pki/issueLeaf";
 import { AgentCertificateError, verifyAgentLeafPop } from "../pki/verifyAgentLeaf";
 import { handlePackRoutes, isPackLeaseRoute, type PackRoutesContext } from "../packs";
 
@@ -30,6 +35,8 @@ export type ServerOpts = {
    */
   gatewayToken?: string;
   inboundDomainSuffix?: string;
+  /** Public Gateway inbound port for platform_dial_url (default 8444). */
+  inboundListenPort?: number;
   /** L2 §D.3 push half of revocation transport; empty urls = push disabled (poll-only). */
   gatewayPush?: GatewayPushConfig;
   /**
@@ -38,6 +45,12 @@ export type ServerOpts = {
    * api-smoke / pre-minted leaves; CSR enroll requires this material.
    */
   agentCA?: AgentCA | null;
+  /**
+   * PEM Agents use to verify the Gateway server cert (GET /v1/ca-bundle).
+   * When omitted, loaded from FABRIC_GATEWAY_CERT[_FILE]. Prefer this over
+   * the Agent CA — Gateway is often self-signed separately.
+   */
+  gatewayTrustPem?: string | null;
   /**
    * Secure Pack routes. When set, the pack version/activate/lease routes are
    * served by the self-contained pack adapter (see src/packs/routes.ts). When
@@ -276,6 +289,9 @@ function parseRevokeCause(v: unknown): "decommission" | "security" | undefined {
 
 export function createServer(store: FabricStore, opts: ServerOpts = {}) {
   const domain = opts.inboundDomainSuffix || "connect.fabric";
+  const inboundPort = opts.inboundListenPort ?? 8444;
+  const pubReg = (r: Parameters<typeof publicRegistration>[0]) =>
+    publicRegistration(r, domain, inboundPort);
   const gatewayPush = opts.gatewayPush ?? loadGatewayPushConfig();
   return http.createServer(async (req, res) => {
     const correlation = (req.headers["x-correlation-id"] as string) || "";
@@ -298,20 +314,31 @@ export function createServer(store: FabricStore, opts: ServerOpts = {}) {
         return send(res, 200, { ok: true });
       }
 
-      // Public CA trust bundle — no auth required, same posture as
-      // /healthz. This is exactly what a customer's TLS trust store needs
-      // to verify the Gateway/Ghostunnel *server* certificate: the CA's
-      // public certificate only, never the signing key. The k3s appliance
-      // installer already assumes this exact path (--ca-url=.../v1/ca-bundle);
-      // shipping it here closes that previously-unimplemented assumption.
-      // Returning it publicly is safe by design -- a CA certificate is
-      // trust-anchor material meant to be widely distributed (this is the
-      // same "ca.crt" file already shipped read-only in the Agent's
-      // connect-agent-tls Secret); it grants no capability by itself.
+      // Public trust bundle — no auth required, same posture as /healthz.
+      // Agents (and the Tenant App "Fetch CA" → install ca.crt) need the
+      // Gateway/Ghostunnel *server* certificate (or its issuer), not the
+      // Agent CA that signs leaves. Prefer FABRIC_GATEWAY_CERT[_FILE]; fall
+      // back to Agent CA only when Gateway trust is unset (dev/tests).
+      // Never returns a private key. Safe to distribute widely.
       if (method === "GET" && path === "/v1/ca-bundle") {
+        const gatewayTrust =
+          opts.gatewayTrustPem !== undefined
+            ? opts.gatewayTrustPem
+            : loadGatewayTrustPem();
+        if (gatewayTrust) {
+          res.writeHead(200, {
+            "Content-Type": "application/x-pem-file",
+            "Content-Length": Buffer.byteLength(gatewayTrust),
+          });
+          res.end(gatewayTrust);
+          return;
+        }
         const ca = opts.agentCA !== undefined ? opts.agentCA : loadAgentCA();
         if (!ca) {
-          return send(res, 404, { error: "agent_ca_not_configured" });
+          return send(res, 404, {
+            error: "gateway_trust_not_configured",
+            note: "Set FABRIC_GATEWAY_CERT_FILE to the Gateway server cert PEM (fabric-gateway-tls).",
+          });
         }
         res.writeHead(200, {
           "Content-Type": "application/x-pem-file",
@@ -758,7 +785,7 @@ export function createServer(store: FabricStore, opts: ServerOpts = {}) {
         const registrations = await store.listRegistrations(tenantId);
         return send(res, 200, {
           tenant_id: tenantId,
-          registrations: registrations.map((r) => publicRegistration(r, domain)),
+          registrations: registrations.map((r) => pubReg(r)),
         });
       }
 
@@ -1132,10 +1159,10 @@ export function createServer(store: FabricStore, opts: ServerOpts = {}) {
             tenant_id: reg.tenant_id,
             registration_id: reg.id,
             state: reg.state,
-            inbound_hostname: publicRegistration(reg, domain).inbound_hostname,
+            inbound_hostname: pubReg(reg).inbound_hostname,
             correlation_id: correlation,
           });
-          return send(res, 201, publicRegistration(reg, domain));
+          return send(res, 201, pubReg(reg));
         } catch (e) {
           return send(res, 400, { error: bad(e) });
         }
@@ -1145,7 +1172,7 @@ export function createServer(store: FabricStore, opts: ServerOpts = {}) {
         const registrationId = path.split("/")[3];
         const reg = await store.getRegistration(registrationId);
         if (!reg) return send(res, 404, { error: "registration_not_found" });
-        return send(res, 200, publicRegistration(reg, domain));
+        return send(res, 200, pubReg(reg));
       }
 
       if (
@@ -1158,7 +1185,7 @@ export function createServer(store: FabricStore, opts: ServerOpts = {}) {
             registrationId,
             actorFrom(req)
           );
-          return send(res, 200, publicRegistration(reg, domain));
+          return send(res, 200, pubReg(reg));
         } catch (e) {
           return send(res, 400, { error: bad(e) });
         }
@@ -1185,7 +1212,7 @@ export function createServer(store: FabricStore, opts: ServerOpts = {}) {
             generation: reg.generation,
             correlation_id: correlation,
           });
-          return send(res, 200, publicRegistration(reg, domain));
+          return send(res, 200, pubReg(reg));
         } catch (e) {
           return send(res, 400, { error: bad(e) });
         }
@@ -1222,7 +1249,7 @@ export function createServer(store: FabricStore, opts: ServerOpts = {}) {
             generation: reg.generation,
             correlation_id: correlation,
           });
-          return send(res, 200, publicRegistration(reg, domain));
+          return send(res, 200, pubReg(reg));
         } catch (e) {
           return send(res, 400, { error: bad(e) });
         }
@@ -1258,6 +1285,18 @@ export function createServer(store: FabricStore, opts: ServerOpts = {}) {
               return send(res, 400, { error: "agent_id_required_for_writer" });
             }
           }
+          const listenRaw = body.listen_port;
+          let listen_port: number | undefined;
+          if (listenRaw !== undefined && listenRaw !== null && listenRaw !== "") {
+            listen_port = Number(listenRaw);
+            if (
+              !Number.isInteger(listen_port) ||
+              listen_port < 1 ||
+              listen_port > 65535
+            ) {
+              return send(res, 400, { error: "invalid_listen_port" });
+            }
+          }
           const reg = await store.reportObserved(
             registrationId,
             observerAgentId,
@@ -1269,10 +1308,11 @@ export function createServer(store: FabricStore, opts: ServerOpts = {}) {
                 | "unknown"
                 | undefined,
               observed_generation: Number(body.observed_generation || 0),
+              listen_port,
             },
             actorFrom(req)
           );
-          return send(res, 200, publicRegistration(reg, domain));
+          return send(res, 200, pubReg(reg));
         } catch (e) {
           return send(res, 400, { error: bad(e) });
         }

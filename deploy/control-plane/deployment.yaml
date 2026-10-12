@@ -77,7 +77,7 @@ spec:
         - name: ocir-secret
       containers:
         - name: control-plane
-          image: phx.ocir.io/axsfgj15p1je/fabric-control-plane:v6
+          image: phx.ocir.io/axsfgj15p1je/fabric-control-plane:v9
           ports:
             - name: http
               containerPort: 8080
@@ -128,6 +128,9 @@ spec:
                   key: revoke_push_token
             - name: FABRIC_GATEWAY_INBOUND_DOMAIN
               value: connect.abluva.com
+            # Used in registration API platform_dial_url (https://host:PORT).
+            - name: FABRIC_GATEWAY_INBOUND_PORT
+              value: "8444"
             - name: FABRIC_DNS_RECONCILE_ENABLED
               value: "1"
             - name: FABRIC_DNS_PROVIDER
@@ -145,11 +148,18 @@ spec:
               value: /etc/fabric/agent-ca/ca.crt
             - name: FABRIC_AGENT_CA_KEY_FILE
               value: /etc/fabric/agent-ca/ca.key
+            # Public GET /v1/ca-bundle (UI Fetch CA → install ca.crt) — Gateway
+            # server cert Agents use to verify fabric.abluva.com:8443, not Agent CA.
+            - name: FABRIC_GATEWAY_CERT_FILE
+              value: /etc/fabric/gateway-tls/gateway-cert.pem
           volumeMounts:
             - name: dns-state
               mountPath: /var/run/fabric
             - name: agent-ca
               mountPath: /etc/fabric/agent-ca
+              readOnly: true
+            - name: gateway-tls
+              mountPath: /etc/fabric/gateway-tls
               readOnly: true
       volumes:
         - name: dns-state
@@ -157,3 +167,9 @@ spec:
         - name: agent-ca
           secret:
             secretName: fabric-agent-ca
+        - name: gateway-tls
+          secret:
+            secretName: fabric-gateway-tls
+            items:
+              - key: gateway-cert.pem
+                path: gateway-cert.pem

@@ -34,6 +34,28 @@ export function loadAgentCA(env: NodeJS.ProcessEnv = process.env): AgentCA | nul
   return { certPem, keyPem };
 }
 
+/**
+ * Public trust PEM for Agents verifying the Gateway/Ghostunnel *server*
+ * certificate (GET /v1/ca-bundle → UI "Fetch CA" → install ca.crt).
+ *
+ * This is the Gateway server cert (often self-signed), NOT the Agent CA used
+ * to sign leaves. Prefer FABRIC_GATEWAY_CERT[_FILE]; optional alias
+ * FABRIC_CA_BUNDLE_FILE for installers that already use that name.
+ */
+export function loadGatewayTrustPem(
+  env: NodeJS.ProcessEnv = process.env
+): string | null {
+  let pem = (env.FABRIC_GATEWAY_CERT || "").trim();
+  if (!pem && env.FABRIC_GATEWAY_CERT_FILE) {
+    pem = fs.readFileSync(env.FABRIC_GATEWAY_CERT_FILE, "utf8").trim();
+  }
+  if (!pem && env.FABRIC_CA_BUNDLE_FILE) {
+    pem = fs.readFileSync(env.FABRIC_CA_BUNDLE_FILE, "utf8").trim();
+  }
+  if (!pem || !pem.includes("BEGIN CERTIFICATE")) return null;
+  return pem;
+}
+
 export type IssuedLeaf = {
   certificatePem: string;
   fingerprintSha256: string;

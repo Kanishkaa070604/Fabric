@@ -39,7 +39,7 @@ Not a second ticket tracker.
 | **D7** | **A — pin** drain + heartbeat in YAML | Gateway `FABRIC_REGISTRATION_DRAIN_GRACE=3m`; CP `FABRIC_HEARTBEAT_DEGRADED_AFTER=90s` |
 | **D8** | Approve **required by default**; **auto-approve is an explicit setting** | Default `false`; `POST /v1/tenants/:id/auto-approve` |
 | **D9** | **SPIFFE-compatible SAN URI** in agent leaf certs | `spiffe://fabric.abluva.io/tenant/<tid>/agent` in cert SAN |
-| **D10** | k3s appliance is the **recommended default** for VM/bare-metal (not just multi-service — the reliability layer is the point); systemd single-binary is the simplest-case fallback; K8s uses `tenant-start.sh` (Helm chart planned, not yet shipped); ECS/Docker use their own templates | `deploy/connect-agent/k3s-appliance/install.sh`, `systemd/`, ECS task def, `docker compose` |
+| **D10** | k3s appliance is the **recommended default** for VM/bare-metal (not just multi-service — the reliability layer is the point); systemd single-binary is the simplest-case fallback; K8s uses `tenant-start.sh` (Helm chart planned, not yet shipped); ECS/Docker use their own templates | `deploy/connect-agent/vm/k3s-appliance/install.sh`, `systemd/`, ECS task def, `docker compose` |
 
 ### Industry note (D2 research) — why hostPath, what others do
 
@@ -361,7 +361,7 @@ service-level identity — cert proves tenant, registration proves service.
 
 ### D10 — Substrate strategy: k3s appliance is the recommended default for VM/bare-metal
 
-**Decision: the k3s appliance (`deploy/connect-agent/k3s-appliance/install.sh`,
+**Decision: the k3s appliance (`deploy/connect-agent/vm/k3s-appliance/install.sh`,
 shipped) is the recommended default for VM/bare-metal customers — not a
 "only if you're running multiple services" special case.** The value is
 the reliability layer k3s provides on its own (liveness/readiness probes,
@@ -371,7 +371,7 @@ benefits from all of that. Whether the customer also runs companion
 services (metrics collector, config sync, local cache) is a bonus reason
 to prefer k3s, not the reason.
 
-The plain systemd single-binary install (`deploy/connect-agent/systemd/`)
+The plain systemd single-binary install (`deploy/connect-agent/vm/systemd/`)
 still works and remains the simplest-case fallback for a customer who
 explicitly wants no orchestrator at all, but it does not handle restarts,
 resource limits, or rolling upgrades the way k3s does — pick it knowingly,
@@ -383,7 +383,7 @@ not by default.
 |---|---|---|
 | **Kubernetes** (any distro) | `tenant-start.sh` (Helm chart **planned, not yet shipped**) | `./tenant-start.sh` against a filled `tenant-start.env` |
 | **VM / Bare Metal** (no K8s) | **k3s appliance** (recommended default) — k3s + Agent DaemonSet | `curl -sSL .../k3s-appliance/install.sh \| sh` |
-| **VM / Bare Metal**, simplest-case fallback | systemd single binary | `deploy/connect-agent/systemd/` install script |
+| **VM / Bare Metal**, simplest-case fallback | systemd single binary | `deploy/connect-agent/vm/systemd/` install script |
 | **ECS** | Task definition (Agent as sidecar container) | ECS task def template |
 | **Docker** | docker-compose | `docker compose up -d` |
 
@@ -547,7 +547,7 @@ Detail: Runbook Step **5b** + `deploy/platform/oci/nlb/README.md`.
 3. Agent `FABRIC_GATEWAY_ADDRESS` = NLB DNS (`terraform output fabric_gateway_address`).
 4. **`FABRIC_GATEWAY_PUSH_*` in-cluster only** →
    `fabric-gateway.fabric-control.svc.cluster.local:9090` (never NLB, never :8443).
-5. Customer install: `deploy/connect-agent/tenant-start.sh`.
+5. Customer install: `deploy/connect-agent/kubernetes/tenant-start.sh`.
 
 ---
 

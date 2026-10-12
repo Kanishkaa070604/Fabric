@@ -27,7 +27,7 @@ output "fabric_gateway_address" {
 output "agent_snippet_hint" {
   value = <<-EOT
     # After DNS for ${local.gateway_host} propagates (if using dns_hostname):
-    # 1) Tenant install (UI snippet + deploy/connect-agent/tenant-start.env):
+    # 1) Tenant install (UI snippet + deploy/connect-agent/kubernetes/tenant-start.env):
     #      FABRIC_GATEWAY_ADDRESS=${local.gateway_host}:${var.listener_port}
     # 2) NO_PROXY must include that hostname (tenant-start.sh does this).
     # 3) Do NOT point FABRIC_GATEWAY_PUSH_* at this NLB — keep in-cluster :9090.

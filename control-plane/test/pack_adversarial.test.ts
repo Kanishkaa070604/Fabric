@@ -212,6 +212,7 @@ describe("Secure Pack — agent/tenant state gates (FAB)", () => {
     const leaf = issueLeafFromCsr(csrPem, { certPem: ca.certPem, keyPem: ca.keyPem });
     const store = new MemoryStore();
     await store.ensureTenant(tenant, "test");
+    if (!makeReady) await store.setAutoApprove(tenant, false, "test");
     const boot = await store.issueBootstrapToken(tenant, "test");
     const agent = await store.enrollAgent({
       tenant_id: tenant,

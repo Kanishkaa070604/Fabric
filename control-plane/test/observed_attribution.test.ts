@@ -181,4 +181,48 @@ describe("observed reachability is attributed to the authenticated Agent", () =>
     const reg = await store.getRegistration(registrationId);
     assert.equal(reg?.observed[`agent:${agentB}`]?.reachable, "true");
   });
+
+  it("stores listen_port and preserves it across Probe without listen_port", async () => {
+    const withPort = await post(
+      port,
+      `/v1/registrations/${registrationId}/observed`,
+      {
+        condition: "Listener",
+        reachable: "true",
+        observed_generation: 1,
+        listen_port: 9444,
+      },
+      tokenA
+    );
+    assert.equal(withPort.status, 200, JSON.stringify(withPort.json));
+    assert.equal(withPort.json.agent_listen_port, 9444);
+
+    const probeOnly = await post(
+      port,
+      `/v1/registrations/${registrationId}/observed`,
+      { condition: "Probe", reachable: "true", observed_generation: 1 },
+      tokenA
+    );
+    assert.equal(probeOnly.status, 200, JSON.stringify(probeOnly.json));
+    assert.equal(probeOnly.json.agent_listen_port, 9444);
+
+    const reg = await store.getRegistration(registrationId);
+    assert.equal(reg?.observed[`agent:${agentA}`]?.listen_port, 9444);
+  });
+
+  it("rejects out-of-range listen_port", async () => {
+    const res = await post(
+      port,
+      `/v1/registrations/${registrationId}/observed`,
+      {
+        condition: "Listener",
+        reachable: "true",
+        observed_generation: 1,
+        listen_port: 70000,
+      },
+      tokenA
+    );
+    assert.equal(res.status, 400, JSON.stringify(res.json));
+    assert.equal(res.json.error, "invalid_listen_port");
+  });
 });

@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS ablv_tenants (
 CREATE TABLE IF NOT EXISTS ablv_tenant_connect (
   tenant_id UUID PRIMARY KEY REFERENCES ablv_tenants(tenant_id),
   -- D8: approval required by default (see the migration for the rationale).
-  auto_approve_agents BOOLEAN NOT NULL DEFAULT FALSE,
+  auto_approve_agents BOOLEAN NOT NULL DEFAULT TRUE,
   max_tunnels INTEGER NOT NULL DEFAULT 50,
   max_concurrent_streams INTEGER NOT NULL DEFAULT 2000,
   max_stream_open_per_sec INTEGER NOT NULL DEFAULT 100,

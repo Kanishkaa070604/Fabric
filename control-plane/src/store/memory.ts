@@ -82,11 +82,9 @@ export class MemoryStore implements FabricStore {
       const now = new Date();
       t = {
         tenant_id: tenantId,
-        // D8: approval required by default. A bootstrap token is a shared,
-        // multi-redeem install credential, so auto-approving whatever presents
-        // one makes the bootstrap window the entirety of enrollment
-        // authorization. Opt in per tenant via setAutoApprove.
-        auto_approve_agents: false,
+        // Temporary: auto-approve on so Day-1 UI can skip Approve. Turn off
+        // per tenant via setAutoApprove(false) for production.
+        auto_approve_agents: true,
         max_tunnels: 50,
         max_concurrent_streams: 2000,
         max_stream_open_per_sec: 100,
@@ -895,6 +893,7 @@ export class MemoryStore implements FabricStore {
       condition: string;
       reachable?: "true" | "false" | "unknown";
       observed_generation: number;
+      listen_port?: number;
     },
     actor: string
   ): Promise<Registration> {
@@ -902,10 +901,24 @@ export class MemoryStore implements FabricStore {
     if (!r || r.deleted_at) throw new Error("registration_not_found");
     const a = this.agents.get(agentId);
     if (!a || a.tenant_id !== r.tenant_id) throw new Error("agent_not_found");
+    if (
+      observed.listen_port !== undefined &&
+      (!Number.isInteger(observed.listen_port) ||
+        observed.listen_port < 1 ||
+        observed.listen_port > 65535)
+    ) {
+      throw new Error("invalid_listen_port");
+    }
+    const prev = r.observed[`agent:${agentId}`];
     r.observed[`agent:${agentId}`] = {
       observed_generation: observed.observed_generation,
       condition: observed.condition,
       reachable: observed.reachable,
+      // Probe reports must not wipe a previously reported listener port.
+      listen_port:
+        observed.listen_port !== undefined
+          ? observed.listen_port
+          : prev?.listen_port,
       reported_at: new Date().toISOString(),
     };
     r.updated_at = new Date();

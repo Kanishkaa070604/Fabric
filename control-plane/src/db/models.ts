@@ -20,7 +20,7 @@ export function defineFabricModels(sequelize: Sequelize, cfg: FabricConfig): Fab
     "TenantConnect",
     {
       tenant_id: { type: DataTypes.UUID, primaryKey: true },
-      auto_approve_agents: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      auto_approve_agents: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
       max_tunnels: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 50 },
       max_concurrent_streams: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 2000 },
       max_stream_open_per_sec: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 100 },

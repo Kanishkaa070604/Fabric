@@ -1,0 +1,40 @@
+# OPTIONAL — do NOT apply by default on k3s/kube-router.
+# Empirically, a second NetworkPolicy selecting app=connect-agent causes
+# immediate connection refused on listener ports even with podSelector:{}
+# and listed ports. tenant-namespace-isolation already allows same-ns dials.
+#
+# Apply only after proving:
+#   kubectl -n TENANT_NAMESPACE delete netpol connect-agent-ingress --ignore-not-found
+#   # same-ns curl to connect-agent:9443 works
+# then re-test after apply. Placeholders: TENANT_NAMESPACE
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: connect-agent-ingress
+  namespace: TENANT_NAMESPACE
+spec:
+  podSelector:
+    matchLabels:
+      app: connect-agent
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - { protocol: TCP, port: 9443 }
+        - { protocol: TCP, port: 9444 }
+        - { protocol: TCP, port: 9445 }
+        - { protocol: TCP, port: 9446 }
+        - { protocol: TCP, port: 9447 }
+        - { protocol: TCP, port: 9448 }
+        - { protocol: TCP, port: 9449 }
+        - { protocol: TCP, port: 9450 }
+        - { protocol: TCP, port: 9451 }
+        - { protocol: TCP, port: 9452 }
+        - { protocol: TCP, port: 9453 }
+        - { protocol: TCP, port: 9454 }
+        - { protocol: TCP, port: 9455 }
+        - { protocol: TCP, port: 9456 }
+        - { protocol: TCP, port: 9457 }
+        - { protocol: TCP, port: 9458 }

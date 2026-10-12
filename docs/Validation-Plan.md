@@ -107,7 +107,7 @@ Production defaults live in:
 
 - `deploy/control-plane/deployment.yaml` (DNS reconcile + Lease on; cert-expiry scan; heartbeat 90s)
 - `deploy/gateway/deployment.yaml` (replicas 2; drain grace 3m; Ghostunnel shutdown aligned)
-- `deploy/connect-agent/daemonset.yaml` (CA-only Secret; **K8s Secret identity** `FABRIC_IDENTITY_STORE=kubernetes`; Service manage; token refresh 1h)
+- `deploy/connect-agent/kubernetes/daemonset.yaml` (CA-only Secret; **K8s Secret identity** `FABRIC_IDENTITY_STORE=kubernetes`; Service manage; token refresh 1h)
 - `deploy/local/docker-compose.yml` (local only — tokens, Access stub)
 
 Expectations:

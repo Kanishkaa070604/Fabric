@@ -8,10 +8,9 @@ import { after, before, describe, it } from "node:test";
 import { createServer } from "../src/http/server";
 import { MemoryStore } from "../src/store/memory";
 
-// GET /v1/ca-bundle: closes the gap the k3s appliance installer already
-// assumed (--ca-url=.../v1/ca-bundle) but no endpoint ever implemented.
-// Public, unauthenticated by design -- a CA certificate is trust-anchor
-// material meant to be widely distributed, not a secret.
+// GET /v1/ca-bundle: public trust PEM for Agents verifying the Gateway
+// server cert (UI "Fetch CA" → install ca.crt). Prefers Gateway cert over
+// Agent CA.
 
 function listen(server: http.Server): Promise<number> {
   return new Promise((resolve) => {
@@ -23,7 +22,7 @@ function listen(server: http.Server): Promise<number> {
   });
 }
 
-function mintTempCA(): { certPem: string; keyPem: string; dir: string } {
+function mintTempCA(cn: string): { certPem: string; keyPem: string; dir: string } {
   const dir = mkdtempSync(path.join(tmpdir(), "mesh-ca-bundle-"));
   const keyPath = path.join(dir, "ca.key");
   const certPath = path.join(dir, "ca.crt");
@@ -42,7 +41,7 @@ function mintTempCA(): { certPem: string; keyPem: string; dir: string } {
       "-days",
       "1",
       "-subj",
-      "/CN=fabric-ca-bundle-test-ca",
+      `/CN=${cn}`,
     ],
     { stdio: "ignore" }
   );
@@ -53,35 +52,40 @@ function mintTempCA(): { certPem: string; keyPem: string; dir: string } {
   };
 }
 
-describe("GET /v1/ca-bundle", () => {
+describe("GET /v1/ca-bundle with Gateway trust", () => {
   let server: http.Server;
   let port: number;
-  let caDir: string;
-  let caCertPem: string;
+  let dirs: string[] = [];
+  let gatewayPem: string;
+  let agentPem: string;
 
   before(async () => {
-    const ca = mintTempCA();
-    caDir = ca.dir;
-    caCertPem = ca.certPem;
+    const gateway = mintTempCA("fabric-gateway-test");
+    const agent = mintTempCA("fabric-agent-ca-test");
+    dirs = [gateway.dir, agent.dir];
+    gatewayPem = gateway.certPem;
+    agentPem = agent.certPem;
     const store = new MemoryStore();
     server = createServer(store, {
-      authToken: "writer-secret", // auth configured -- ca-bundle must still be public
-      agentCA: { certPem: ca.certPem, keyPem: ca.keyPem },
+      authToken: "writer-secret",
+      agentCA: { certPem: agent.certPem, keyPem: agent.keyPem },
+      gatewayTrustPem: gateway.certPem,
     });
     port = await listen(server);
   });
 
   after(async () => {
     await new Promise<void>((r) => server.close(() => r()));
-    rmSync(caDir, { recursive: true, force: true });
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
   });
 
-  it("returns the CA certificate with no Authorization header required", async () => {
+  it("returns the Gateway cert (not Agent CA) with no Authorization", async () => {
     const res = await fetch(`http://127.0.0.1:${port}/v1/ca-bundle`);
     assert.equal(res.status, 200);
     assert.equal(res.headers.get("content-type"), "application/x-pem-file");
     const body = await res.text();
-    assert.equal(body, caCertPem);
+    assert.equal(body, gatewayPem);
+    assert.notEqual(body, agentPem);
   });
 
   it("never returns the private key", async () => {
@@ -91,17 +95,51 @@ describe("GET /v1/ca-bundle", () => {
   });
 });
 
-describe("GET /v1/ca-bundle without a configured CA", () => {
+describe("GET /v1/ca-bundle falls back to Agent CA", () => {
+  let server: http.Server;
+  let port: number;
+  let caDir: string;
+  let caCertPem: string;
+
+  before(async () => {
+    const ca = mintTempCA("fabric-ca-bundle-test-ca");
+    caDir = ca.dir;
+    caCertPem = ca.certPem;
+    const store = new MemoryStore();
+    server = createServer(store, {
+      authToken: "writer-secret",
+      agentCA: { certPem: ca.certPem, keyPem: ca.keyPem },
+      gatewayTrustPem: null,
+    });
+    port = await listen(server);
+  });
+
+  after(async () => {
+    await new Promise<void>((r) => server.close(() => r()));
+    rmSync(caDir, { recursive: true, force: true });
+  });
+
+  it("returns Agent CA when Gateway trust is unset", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/v1/ca-bundle`);
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), caCertPem);
+  });
+});
+
+describe("GET /v1/ca-bundle without trust material", () => {
   it("returns 404 rather than crashing", async () => {
     const store = new MemoryStore();
     const server = createServer(store, {
       authToken: "writer-secret",
-      agentCA: null, // explicitly unconfigured
+      agentCA: null,
+      gatewayTrustPem: null,
     });
     const port = await listen(server);
     try {
       const res = await fetch(`http://127.0.0.1:${port}/v1/ca-bundle`);
       assert.equal(res.status, 404);
+      const body = (await res.json()) as { error?: string };
+      assert.equal(body.error, "gateway_trust_not_configured");
     } finally {
       await new Promise<void>((r) => server.close(() => r()));
     }

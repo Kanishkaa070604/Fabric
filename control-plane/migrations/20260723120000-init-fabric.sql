@@ -2,6 +2,7 @@
 -- FK target: ablv_tenants(tenant_id) — existing SaaS table (do not CREATE/ALTER that table here).
 -- Apply via Sequelize CLI or psql once Access API DB creds are wired.
 -- Local compose mirror: deploy/local/postgres/init.sql (keep columns in sync).
+-- Prod one-shot (all migrations clubbed): pg-schema-prod.sql
 --
 -- Allowed agent.state: NotInstalled, Installing, Bootstrapping, PendingApproval,
 --   Connecting, Connected, Degraded, Disconnected, Retired
@@ -17,7 +18,7 @@ CREATE TABLE IF NOT EXISTS ablv_tenant_connect (
   -- multi-redeem install credential, so auto-approving whatever presents it
   -- makes the bootstrap window the whole of enrollment authorization. Tenants
   -- whose install flow genuinely warrants it opt in per tenant.
-  auto_approve_agents BOOLEAN NOT NULL DEFAULT FALSE,
+  auto_approve_agents BOOLEAN NOT NULL DEFAULT TRUE,
   max_tunnels INTEGER NOT NULL DEFAULT 50,
   max_concurrent_streams INTEGER NOT NULL DEFAULT 2000,
   max_stream_open_per_sec INTEGER NOT NULL DEFAULT 100,
