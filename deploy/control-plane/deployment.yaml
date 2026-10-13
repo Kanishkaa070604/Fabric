@@ -69,6 +69,12 @@ metadata:
   namespace: 3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c
 spec:
   replicas: 2
+  # No surge pod — cluster is CPU-tight; replace one replica at a time in place.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: fabric-control-plane
@@ -157,6 +163,13 @@ spec:
               value: /etc/fabric/agent-ca/ca.key
             # Public GET /v1/ca-bundle (UI Fetch CA → install ca.crt) — Gateway
             # server cert Agents use to verify fabric.abluva.com:8443, not Agent CA.
+            # Prefer file mount; also inject PEM env so ca-bundle works if the
+            # volume is missing (loadGatewayTrustPem checks FABRIC_GATEWAY_CERT first).
+            - name: FABRIC_GATEWAY_CERT
+              valueFrom:
+                secretKeyRef:
+                  name: fabric-gateway-tls
+                  key: gateway-cert.pem
             - name: FABRIC_GATEWAY_CERT_FILE
               value: /etc/fabric/gateway-tls/gateway-cert.pem
           volumeMounts:
