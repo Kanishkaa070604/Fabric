@@ -13,12 +13,16 @@
 #   ./tenant-start.sh <path/to/tenant-start.env>
 #
 # Prerequisites:
-#   - kubectl with rights to create Namespace / Secret / DaemonSet / Deployment /
+#   - kubectl with rights to create Namespace / Secret / DaemonSet /
 #     Service / Role / RoleBinding / NetworkPolicy
 #   - Day-1 values from Abluva Connect UI (see tenant-start.env.example)
+#   - ca.crt and the env file in the SAME directory as this script
+#     (CA_CERT_FILE=./ca.crt is relative to that directory)
 #   - Egress to FABRIC_GATEWAY_ADDRESS :8443 and to FABRIC_CONTROL_PLANE_URL
 #   - python3 (used only to render the DaemonSet YAML)
-#   - Sibling ../../agent/agent-deployment.yaml (launcher; applied by this script)
+#
+# Launcher (Deployment/agent) is NOT applied here — after Agent Connected,
+# run deploy/agent/deploy-agent.sh -t <tenant> -e <env> -p <port>.
 #
 # Support trap (read this):
 #   Agent→Gateway is raw mutual-TLS TCP, not HTTP. If the node/cluster injects
@@ -76,9 +80,8 @@ fi
 NO_PROXY_VALUE="${GW_HOST},localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.svc.cluster.local,.cluster.local"
 AGENT_TIMEOUT="${AGENT_TIMEOUT:-300s}"
 SKIP_NETWORK_POLICY="${SKIP_NETWORK_POLICY:-0}"
-: "${ENVIRONMENT_ID:?ENVIRONMENT_ID required}"
+# ENVIRONMENT_ID is used by deploy/agent/deploy-agent.sh (launcher), not this script.
 SAAS_NAMESPACE="${SAAS_NAMESPACE:-3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c}"
-AGENT_DEPLOY_YAML="${AGENT_DEPLOY_YAML:-$SCRIPT_DIR/../../agent/agent-deployment.yaml}"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
@@ -94,7 +97,7 @@ echo "  Control plane: $FABRIC_CONTROL_PLANE_URL"
 echo "  Context:       $(kubectl config current-context 2>/dev/null || echo unknown)"
 echo ""
 
-echo "[1/6] Namespace"
+echo "[1/5] Namespace"
 kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Namespace
@@ -106,7 +109,7 @@ EOF
 kubectl config set-context --current --namespace "$TENANT_NAMESPACE" >/dev/null || true
 echo "[OK] Namespace ready (abluva.io/tenant=true)."
 
-echo "[2/6] Secrets"
+echo "[2/5] Secrets"
 kubectl -n "$TENANT_NAMESPACE" create secret generic connect-agent-tls \
   --from-file=ca.crt="$CA_CERT_FILE" \
   --dry-run=client -o yaml | kubectl apply -f -
@@ -126,7 +129,7 @@ else
 fi
 echo "[OK] Secrets applied (CA + bootstrap). No separate Agent API seed needed."
 
-echo "[3/6] DaemonSet + Service + RBAC"
+echo "[3/5] DaemonSet + Service + RBAC"
 export NO_PROXY_VALUE
 python3 - "$SCRIPT_DIR/daemonset.yaml" "$WORKDIR/daemonset.yaml" <<'PY'
 import re, sys
@@ -209,24 +212,7 @@ PY
 kubectl apply -f "$WORKDIR/daemonset.yaml"
 echo "[OK] DaemonSet applied."
 
-echo "[4/6] agent launcher"
-if [[ ! -f "$AGENT_DEPLOY_YAML" ]]; then
-  echo "Error: missing $AGENT_DEPLOY_YAML (agent/ must sit next to connect-agent/)"
-  exit 1
-fi
-# INFRA_BASE_URL uses connect-agent:<CONTROL_SERVER_LISTEN_PORT> (Customer→Platform).
-CS_PORT="${CONTROL_SERVER_LISTEN_PORT:-<control-server-listen-port>}"
-sed -e "s/<tenant-namespace>/${TENANT_NAMESPACE}/g" \
-    -e "s/<tenantId>/${TENANT_ID}/g" \
-    -e "s/<envid>/${ENVIRONMENT_ID}/g" \
-    -e "s/<control-server-listen-port>/${CS_PORT}/g" \
-    "$AGENT_DEPLOY_YAML" | kubectl apply -f -
-echo "[OK] agent-deployment.yaml applied (INFRA_BASE_URL → connect-agent:${CS_PORT})."
-if [[ "$CS_PORT" == "<control-server-listen-port>" ]]; then
-  echo "     NOTE: set CONTROL_SERVER_LISTEN_PORT when known (PLATFORM control-server listener)."
-fi
-
-echo "[5/6] NetworkPolicy"
+echo "[4/5] NetworkPolicy"
 if [[ "$SKIP_NETWORK_POLICY" == "1" ]]; then
   echo "[SKIP] SKIP_NETWORK_POLICY=1"
 else
@@ -239,7 +225,7 @@ else
   echo "     Optional Agent NetPol: networkpolicy-agent-ingress-optional.yaml (test before apply)."
 fi
 
-echo "[6/6] Wait for DaemonSet"
+echo "[5/5] Wait for DaemonSet"
 kubectl -n "$TENANT_NAMESPACE" rollout status "daemonset/connect-agent" --timeout="$AGENT_TIMEOUT"
 
 echo ""
@@ -250,23 +236,22 @@ echo ""
 echo "  Next:"
 echo "    1. Check pods:"
 echo "         kubectl -n ${TENANT_NAMESPACE} get pods"
-echo "       Expect both Running 1/1:"
-echo "         connect-agent   (Connect Agent)"
-echo "         agent           (launcher)"
+echo "       Expect Running 1/1: connect-agent"
 echo ""
-echo "    2. Abluva UI → Subscriptions → this subscription → Connect Agent:"
-echo "       - Wait until Connect Agent shows Connected (Approve if PendingApproval)."
-echo "       - Click Add customer registrations."
-echo "       - Fill rows (host is the Kubernetes Service name, not the Fabric display name):"
+echo "    2. Abluva UI → Subscriptions → Connect Agent:"
+echo "       - Wait until Connected (Approve if PendingApproval)."
+echo "       - Install → Refresh for CONTROL_SERVER_LISTEN_PORT."
+echo ""
+echo "    3. Deploy the launcher (tenant + env + email + listen port):"
+echo "         cd ../../agent"
+echo "         ./deploy-agent.sh -t ${TENANT_ID} -e <ENVIRONMENT_ID> -m <LOGIN_EMAIL> -p <PORT>"
+echo "       See deploy/agent/README.md"
+echo ""
+echo "    4. UI → Add customer registrations:"
 echo "           agent-launcher   host=agent-svc          port=5004"
-echo "           data-privacy     host=data-privacy-svc   port=8080   (only if you deploy privacy)"
-echo "       - Click Create."
-echo "       - If Create is disabled, the Connect Agent is not Connected yet — wait/Approve, then retry."
-echo ""
-echo "    3. After Create succeeds, copy the host:port (or dial URL) shown on the page"
-echo "       and use it to create the resource / launcher endpoint in your app."
+echo "           data-privacy     host=data-privacy-svc   port=8080   (if privacy)"
+echo "       Then copy host:port for platform resource / launcher endpoint."
 echo ""
 echo "  Errors or detailed steps:"
 echo "    See deploy/secure-agent-net.README.md → Troubleshooting"
-echo "    (same file at repo root in secure-agent-net: README / secure-agent-net.README.md)."
 echo "============================================================"

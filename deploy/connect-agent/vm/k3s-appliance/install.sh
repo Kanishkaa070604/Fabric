@@ -28,15 +28,17 @@
 # Prerequisites:
 #   - Linux host (amd64/arm64) — k3s installs a systemd unit; Agent still
 #     runs as a DaemonSet inside k3s (not the plain systemd/ Agent package)
-#   - curl or wget; root access
+#   - curl or wget; root access; python3 (renders DaemonSet YAML)
 #   - Outbound TCP to FABRIC_GATEWAY_ADDRESS host:port (typically :8443)
 #     and HTTPS to FABRIC_CONTROL_PLANE_URL
+#   - daemonset.yaml + networkpolicy-example.yaml next to this script
+#     (symlinks to ../../kubernetes/ — same manifests as tenant-start.sh)
 #
 # What gets installed:
 #   - /usr/local/bin/k3s (single static binary, ~60MB)
 #   - systemd unit: k3s.service (managed by the k3s installer)
 #   - Namespace: fabric-edge
-#   - DaemonSet: connect-agent (same manifest as the K8s path)
+#   - DaemonSet/Service/RBAC: same kubernetes/daemonset.yaml as K8s customers
 #   - Secrets: connect-agent-tls (CA), fabric-edge-bootstrap (token)
 #
 # Uninstall:
@@ -49,10 +51,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # --- Defaults ---
 K3S_VERSION="${K3S_VERSION:-}"  # empty = latest stable
 AGENT_IMAGE="${AGENT_IMAGE:-ghcr.io/abluva/connect-agent:latest}"
-AGENT_DEPLOY_YAML="${AGENT_DEPLOY_YAML:-$SCRIPT_DIR/../../../agent/agent-deployment.yaml}"
 SAAS_NAMESPACE="${SAAS_NAMESPACE:-3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c}"
 NAMESPACE="fabric-edge"
 FABRIC_IDENTITY_STORE="kubernetes"
+# Same YAML as kubernetes customers (symlink in this dir → ../../kubernetes/)
+DAEMONSET_YAML="${DAEMONSET_YAML:-$SCRIPT_DIR/daemonset.yaml}"
+NP_YAML="${NP_YAML:-$SCRIPT_DIR/networkpolicy-example.yaml}"
 
 # --- Parse args ---
 BOOTSTRAP_TOKEN=""
@@ -100,6 +104,8 @@ if [[ -n "$ENV_FILE" ]]; then
   TENANT_ID="${TENANT_ID:-${FABRIC_TENANT_ID:-}}"
   TLS_SERVER_NAME="${TLS_SERVER_NAME:-${FABRIC_TLS_SERVER_NAME:-}}"
   ENVIRONMENT_ID="${ENVIRONMENT_ID:-}"
+  AGENT_IMAGE="${AGENT_IMAGE:-${CONNECT_AGENT_IMAGE:-$AGENT_IMAGE}}"
+  CA_FILE="${CA_FILE:-${CA_CERT_FILE:-}}"
 fi
 
 # Validate required args
@@ -107,7 +113,17 @@ fi
 [[ -n "$GATEWAY_ADDRESS" ]] || { echo "ERROR: --gateway is required"; usage; }
 [[ -n "$CONTROL_PLANE_URL" ]] || { echo "ERROR: --control-plane is required"; usage; }
 [[ -n "$TENANT_ID" ]] || { echo "ERROR: --tenant-id is required"; usage; }
-[[ -n "${ENVIRONMENT_ID:-}" ]] || { echo "ERROR: ENVIRONMENT_ID is required"; exit 1; }
+# ENVIRONMENT_ID is used by deploy/agent/deploy-agent.sh (launcher), not this script.
+
+if [[ ! -f "$DAEMONSET_YAML" ]]; then
+  echo "ERROR: missing DaemonSet YAML: $DAEMONSET_YAML"
+  echo "       Expected symlink/copy of ../../kubernetes/daemonset.yaml next to install.sh"
+  exit 1
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "ERROR: python3 is required to render daemonset.yaml (same as tenant-start.sh)"
+  exit 1
+fi
 
 # --- Step 1: Install k3s ---
 echo "[1/6] Installing k3s..."
@@ -180,146 +196,114 @@ else
   echo "[OK] fabric-edge-bootstrap created."
 fi
 
-# --- Step 4: Deploy Connect Agent ---
-echo "[4/6] Deploying Connect Agent..."
-NO_PROXY_VALUE="${GATEWAY_ADDRESS%%:*},localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.svc.cluster.local"
+# --- Step 4: Deploy Connect Agent (same daemonset.yaml as kubernetes/tenant-start.sh) ---
+echo "[4/6] Deploying Connect Agent (shared kubernetes/daemonset.yaml)..."
+GW_HOST="${GATEWAY_ADDRESS%%:*}"
+NO_PROXY_VALUE="${GW_HOST},localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.svc.cluster.local,.cluster.local"
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR"' EXIT
 
-cat <<EOF | k3s kubectl apply -f -
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: connect-agent
-  namespace: $NAMESPACE
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: connect-agent
-  namespace: $NAMESPACE
-rules:
-  - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["get", "create", "patch"]
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "create", "patch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: connect-agent
-  namespace: $NAMESPACE
-subjects:
-  - kind: ServiceAccount
-    name: connect-agent
-    namespace: $NAMESPACE
-roleRef:
-  kind: Role
-  name: connect-agent
-  apiGroup: rbac.authorization.k8s.io
----
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: connect-agent
-  namespace: $NAMESPACE
-spec:
-  selector:
-    matchLabels:
-      app: connect-agent
-  template:
-    metadata:
-      labels:
-        app: connect-agent
-    spec:
-      serviceAccountName: connect-agent
-      containers:
-        - name: connect-agent
-          image: $AGENT_IMAGE
-          securityContext:
-            runAsNonRoot: true
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          env:
-            - name: FABRIC_GATEWAY_ADDRESS
-              value: "$GATEWAY_ADDRESS"
-            - name: FABRIC_TLS_SERVER_NAME
-              value: "${TLS_SERVER_NAME:-}"
-            - name: FABRIC_TENANT_ID
-              value: "$TENANT_ID"
-            - name: FABRIC_CONTROL_PLANE_URL
-              value: "$CONTROL_PLANE_URL"
-            - name: FABRIC_BOOTSTRAP_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: fabric-edge-bootstrap
-                  key: bootstrap_token
-            - name: FABRIC_AGENT_CERT_DIR
-              value: /var/run/fabric/tls
-            - name: FABRIC_AGENT_CA_FILE
-              value: /etc/connect-agent/tls/ca.crt
-            - name: FABRIC_AGENT_ID_PATH
-              value: /var/run/fabric/agent-id
-            - name: FABRIC_IDENTITY_STORE
-              value: "$FABRIC_IDENTITY_STORE"
-            - name: FABRIC_NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-            - name: FABRIC_K8S_SERVICE_MANAGE_ENABLED
-              value: "1"
-            - name: FABRIC_SUBSTRATE
-              value: "vm"
-            - name: NO_PROXY
-              value: "$NO_PROXY_VALUE"
-            - name: no_proxy
-              value: "$NO_PROXY_VALUE"
-          volumeMounts:
-            - name: agent-trust
-              mountPath: /etc/connect-agent/tls
-              readOnly: true
-            - name: agent-cache
-              mountPath: /var/run/fabric
-          readinessProbe:
-            exec:
-              command: ["/connect-agent", "ready"]
-            periodSeconds: 10
-          livenessProbe:
-            exec:
-              command: ["/connect-agent", "health"]
-            periodSeconds: 15
-          resources:
-            requests: { cpu: "50m", memory: "64Mi" }
-            limits: { cpu: "200m", memory: "128Mi" }
-      volumes:
-        - name: agent-trust
-          secret:
-            secretName: connect-agent-tls
-            optional: true
-        - name: agent-cache
-          emptyDir: {}
-EOF
+export TENANT_NAMESPACE="$NAMESPACE"
+export CONNECT_AGENT_IMAGE="$AGENT_IMAGE"
+export FABRIC_GATEWAY_ADDRESS="$GATEWAY_ADDRESS"
+export FABRIC_CONTROL_PLANE_URL="$CONTROL_PLANE_URL"
+export FABRIC_TLS_SERVER_NAME="${TLS_SERVER_NAME:-}"
+export NO_PROXY_VALUE
+# TENANT_ID already set
 
-echo "[5/6] Applying agent launcher..."
-if [[ ! -f "$AGENT_DEPLOY_YAML" ]]; then
-  echo "ERROR: missing $AGENT_DEPLOY_YAML (agent/ must sit next to connect-agent/)"
-  exit 1
-fi
-CS_PORT="${CONTROL_SERVER_LISTEN_PORT:-<control-server-listen-port>}"
-sed -e "s/<tenant-namespace>/${NAMESPACE}/g" \
-    -e "s/<tenantId>/${TENANT_ID}/g" \
-    -e "s/<envid>/${ENVIRONMENT_ID}/g" \
-    -e "s/<control-server-listen-port>/${CS_PORT}/g" \
-    "$AGENT_DEPLOY_YAML" | k3s kubectl apply -f -
-echo "  [OK] agent-deployment.yaml applied (INFRA_BASE_URL → connect-agent:${CS_PORT})."
-NP_YAML="${NP_YAML:-$SCRIPT_DIR/../../kubernetes/networkpolicy-example.yaml}"
+python3 - "$DAEMONSET_YAML" "$WORKDIR/daemonset.yaml" <<'PY'
+import re, sys, os
+src, dst = sys.argv[1], sys.argv[2]
+ns = os.environ["TENANT_NAMESPACE"]
+image = os.environ["CONNECT_AGENT_IMAGE"]
+gw = os.environ["FABRIC_GATEWAY_ADDRESS"]
+tid = os.environ["TENANT_ID"]
+cp = os.environ["FABRIC_CONTROL_PLANE_URL"]
+noproxy = os.environ["NO_PROXY_VALUE"]
+sni = os.environ.get("FABRIC_TLS_SERVER_NAME", "").strip()
+
+text = open(src).read()
+text = text.replace("TENANT_NAMESPACE", ns)
+text = text.replace("your-registry/connect-agent:REPLACE", image)
+text = text.replace("fabric.platform.example.com:8443", gw)
+text = text.replace("REPLACE_TENANT_UUID", tid)
+text = text.replace("https://control-plane.platform.example.com", cp)
+# Appliance substrate (shared YAML defaults to kubernetes)
+text = re.sub(
+    r'(name: FABRIC_SUBSTRATE\n\s+value: ")[^"]+(")',
+    r'\1vm\2',
+    text,
+    count=1,
+)
+text = re.sub(
+    r'(name: NO_PROXY\n\s+value: ")[^"]+(")',
+    r"\1" + noproxy + r"\2",
+    text,
+)
+text = re.sub(
+    r'(name: no_proxy\n\s+value: ")[^"]+(")',
+    r"\1" + noproxy + r"\2",
+    text,
+)
+
+def uncomment_env(name: str, blob: str) -> str:
+    lines = blob.splitlines(True)
+    out = []
+    i = 0
+    marker = re.compile(rf"^[ \t]*# - name: {re.escape(name)}\s*$")
+    found = False
+    while i < len(lines):
+        if marker.match(lines[i]):
+            found = True
+            while i < len(lines):
+                l = lines[i]
+                indent = l[: len(l) - len(l.lstrip())]
+                rest = l.lstrip()
+                if not rest.startswith("#"):
+                    break
+                rest = rest[1:]
+                if rest.startswith(" "):
+                    rest = rest[1:]
+                out.append(indent + rest)
+                if rest.lstrip().startswith("key:"):
+                    i += 1
+                    break
+                i += 1
+            continue
+        out.append(lines[i])
+        i += 1
+    if not found:
+        raise SystemExit(f"render error: could not find commented env {name}")
+    return "".join(out)
+
+text = uncomment_env("FABRIC_BOOTSTRAP_TOKEN", text)
+
+if sni:
+    insert = (
+        f'            - name: FABRIC_TLS_SERVER_NAME\n'
+        f'              value: "{sni}"\n'
+    )
+    marker = '            - name: FABRIC_GATEWAY_ADDRESS\n'
+    i = text.find(marker)
+    if i < 0:
+        raise SystemExit("render error: FABRIC_GATEWAY_ADDRESS missing")
+    j = text.find("\n", text.find("value:", i))
+    text = text[: j + 1] + insert + text[j + 1 :]
+
+open(dst, "w").write(text)
+PY
+
+k3s kubectl apply -f "$WORKDIR/daemonset.yaml"
+echo "  [OK] DaemonSet/Service/RBAC applied from $DAEMONSET_YAML (FABRIC_SUBSTRATE=vm)."
+
+echo "[5/6] Applying NetworkPolicy..."
 if [[ -f "$NP_YAML" ]]; then
   sed -e "s/TENANT_NAMESPACE/${NAMESPACE}/g" \
       -e "s/SAAS_NAMESPACE/${SAAS_NAMESPACE}/g" \
     "$NP_YAML" | k3s kubectl apply -f -
-  echo "  [OK] NetworkPolicy applied."
+  echo "  [OK] NetworkPolicy applied from $NP_YAML."
+else
+  echo "  [SKIP] NetworkPolicy YAML not found at $NP_YAML"
 fi
 
 # --- Step 6: Wait for Agent to be ready ---
@@ -333,21 +317,20 @@ for i in $(seq 1 60); do
     echo "  Next:"
     echo "    1. Check pods:"
     echo "         k3s kubectl -n $NAMESPACE get pods"
-    echo "       Expect both Running 1/1:"
-    echo "         connect-agent   (Connect Agent)"
-    echo "         agent           (launcher)"
+    echo "       Expect Running 1/1: connect-agent"
     echo ""
-    echo "    2. Abluva UI → Subscriptions → this subscription → Connect Agent:"
-    echo "       - Wait until Connect Agent shows Connected (Approve if PendingApproval)."
-    echo "       - Click Add customer registrations."
-    echo "       - Fill rows (host is the Kubernetes Service name, not the Fabric display name):"
+    echo "    2. Abluva UI → Subscriptions → Connect Agent:"
+    echo "       - Wait until Connected (Approve if PendingApproval)."
+    echo "       - Install → Refresh for CONTROL_SERVER_LISTEN_PORT."
+    echo ""
+    echo "    3. Deploy the launcher (tenant + env + email + listen port):"
+    echo "         cd ../../../agent"
+    echo "         KUBECTL=\"k3s kubectl\" ./deploy-agent.sh -t ${TENANT_ID} -e <ENVIRONMENT_ID> -m <LOGIN_EMAIL> -p <PORT> --vm"
+    echo "       See deploy/agent/README.md"
+    echo ""
+    echo "    4. UI → Add customer registrations:"
     echo "           agent-launcher   host=agent-svc          port=5004"
-    echo "           data-privacy     host=data-privacy-svc   port=8080   (only if you deploy privacy)"
-    echo "       - Click Create."
-    echo "       - If Create is disabled, the Connect Agent is not Connected yet — wait/Approve, then retry."
-    echo ""
-    echo "    3. After Create succeeds, copy the host:port (or dial URL) shown on the page"
-    echo "       and use it to create the resource / launcher endpoint in your app."
+    echo "           data-privacy     host=data-privacy-svc   port=8080   (if privacy)"
     echo ""
     echo "  Errors or detailed steps:"
     echo "    See deploy/secure-agent-net.README.md → Troubleshooting"

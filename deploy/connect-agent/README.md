@@ -15,9 +15,9 @@ Layout:
 
 | Path | What |
 |---|---|
-| [`kubernetes/`](./kubernetes/) | Existing-cluster installer: `tenant-start.sh`, DaemonSet, NetworkPolicy |
-| [`../agent/agent-deployment.yaml`](../agent/agent-deployment.yaml) | Launcher (`Deployment/agent` + `agent-svc:5004`) — applied by the installers. **Before install:** set `X_ABLV_PRINCIPAL` to your login email (`X-ABLV-Principal`). |
-| [`vm/k3s-appliance/`](./vm/k3s-appliance/) | VM / bare metal (recommended) |
+| [`kubernetes/`](./kubernetes/) | Existing-cluster installer: `tenant-start.sh`, `daemonset.yaml`, NetworkPolicy |
+| [`../agent/`](../agent/) | Launcher (`deploy-agent.sh` + `agent-deployment.yaml`) — **after** Agent Connected. See [`../agent/README.md`](../agent/README.md). |
+| [`vm/k3s-appliance/`](./vm/k3s-appliance/) | VM / bare metal — `install.sh` + **symlinks to the same** `daemonset.yaml` / NetworkPolicy as Kubernetes |
 | [`vm/systemd/`](./vm/systemd/) | VM fallback (single binary) |
 | [`ecs/`](./ecs/) | ECS (coming soon) |
 | `enable-oidc-*.sh` | Common OIDC prep (EKS / RKE2 / k3s) |
@@ -25,12 +25,14 @@ Layout:
 ## Kubernetes
 
 **Customer pass-as-is installer:** [`kubernetes/tenant-start.sh`](./kubernetes/tenant-start.sh) +
-[`kubernetes/tenant-start.env.example`](./kubernetes/tenant-start.env.example). Fill Day‑1 values
-from the Connect UI (including Platform NLB as `FABRIC_GATEWAY_ADDRESS`), then
-`./kubernetes/tenant-start.sh ./kubernetes/tenant-start.env`. This is Fabric equivalent of
-[secure-agent-net `tenant-start.sh`](https://github.com/abluva-research/secure-agent-net/blob/main/agent/tenant-start.sh)
-in *role* only — Fabric Agents dial **out** to the Platform NLB; there is no
-Skupper site, MetalLB, or AccessToken redeem on the customer cluster.
+[`kubernetes/tenant-start.env.example`](./kubernetes/tenant-start.env.example). Put downloaded
+`ca.crt` and `tenant-start.env` **in the same directory as** `tenant-start.sh`, fill Day‑1
+values from the Connect UI (including Platform NLB as `FABRIC_GATEWAY_ADDRESS`), then from
+that directory run `./tenant-start.sh ./tenant-start.env`. After Agent Connected, deploy the
+launcher with [`../agent/deploy-agent.sh`](../agent/deploy-agent.sh). Full steps:
+[`../../docs/Customer-Connect-Install.md`](../../docs/Customer-Connect-Install.md). Fabric Agents dial
+**out** to the Platform NLB; there is no Skupper site, MetalLB, or AccessToken redeem on the
+customer cluster.
 
 **Identity (D2-NEW, shipped default):** the DaemonSet sets
 `FABRIC_IDENTITY_STORE=kubernetes`, which persists the Agent's leaf cert,
@@ -88,12 +90,11 @@ knowing:
   (`POST …/registrations/:id/observed` with `listen_port`). Fabric returns
   it as **`agent_listen_port`** on `GET /v1/tenants/:id/registrations`.
   The Connect UI Install env uses the PLATFORM `control-server` row’s
-  `agent_listen_port` as **`CONTROL_SERVER_LISTEN_PORT`**, which
-  `tenant-start.sh` substitutes into
-  [`../agent/agent-deployment.yaml`](../agent/agent-deployment.yaml)
-  (`INFRA_BASE_URL` → `http://connect-agent.<ns>.svc:<port>`). Refresh the
-  Install snippet after the Agent is Connected if the line is still
-  commented.
+  `agent_listen_port` as **`CONTROL_SERVER_LISTEN_PORT`**. After the Agent
+  is Connected, Refresh for the port, then run
+  [`../agent/deploy-agent.sh`](../agent/deploy-agent.sh)
+  `-t <tenant> -e <env> -p <port>` (not `tenant-start.sh`) so
+  `INFRA_BASE_URL` becomes `http://connect-agent.<ns>.svc:<port>`.
 
 This requires the RBAC `daemonset.yaml` also ships (`Role`/`RoleBinding`,
 scoped to `get`/`create`/`patch` on `Service` in this one namespace only) —

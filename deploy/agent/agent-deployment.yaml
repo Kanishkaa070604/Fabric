@@ -1,17 +1,17 @@
 # Hybrid: customer-side launcher — aligned with k8s/saas-agent.yaml.
-# Installers (tenant-start.sh / k3s install.sh) replace from env:
+# Applied by deploy/agent/deploy-agent.sh AFTER Connect Agent is Connected
+# (not by connect-agent tenant-start.sh / k3s install.sh). Placeholders:
 #   <tenant-namespace>           ← TENANT_NAMESPACE
 #   <tenantId>                   ← TENANT_ID
 #   <envid>                      ← ENVIRONMENT_ID
-#   <control-server-listen-port> ← CONTROL_SERVER_LISTEN_PORT
-# Operator must set before apply:
-#   X_ABLV_PRINCIPAL = your login email (sent as X-ABLV-Principal)
+#   <control-server-listen-port> ← CONTROL_SERVER_LISTEN_PORT (--port)
+#   <principal-email>            ← --email / -m (X_ABLV_PRINCIPAL)
 #
 # INFRA_BASE_URL is Customer→Platform via Connect Agent (not SaaS in-cluster DNS):
 #   http://connect-agent.<ns>.svc.cluster.local:<listener-port>
 # <control-server-listen-port> = Agent StreamOpen port for PLATFORM reg
-# display_name=control-server. Prefer Connect UI Install → CONTROL_SERVER_LISTEN_PORT
-# (Fabric agent_listen_port after Agent reports). Fallback: svc annotation
+# display_name=control-server. Prefer Connect UI Install → Refresh after
+# Connected (Fabric agent_listen_port). Fallback: svc annotation
 # fabric.abluva.io/registration-ports keyed by that registration UUID.
 apiVersion: v1
 kind: ServiceAccount
@@ -95,9 +95,9 @@ spec:
               value: "<tenantId>"
             - name: X_ABLV_ENVIRONMENT_ID
               value: "<envid>"
-            # X-ABLV-Principal — set to your login email before install
+            # X-ABLV-Principal — filled by deploy-agent.sh --email
             - name: X_ABLV_PRINCIPAL
-              value: "you@yourcompany.com"
+              value: "<principal-email>"
             - name: X_ABLV_PRINCIPAL_ROLE
               value: "tenant-admin"
             - name: X_SAAS_TENANT_ID

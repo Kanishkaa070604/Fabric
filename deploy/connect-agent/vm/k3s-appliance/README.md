@@ -16,6 +16,12 @@ the Connect Agent as a DaemonSet inside it.
 
 ## Usage
 
+Place downloaded **`ca.crt`** and **`fabric-edge.env` in the same directory as
+`install.sh`** before running (paths like `CA_FILE=./ca.crt` are relative to
+that directory). After Agent Connected, deploy the launcher from
+`deploy/agent/` — see [`../../agent/README.md`](../../agent/README.md) and
+[`../../../docs/Customer-Connect-Install.md`](../../../docs/Customer-Connect-Install.md).
+
 `--ca-url` points at `GET /v1/ca-bundle` on the control plane — shipped,
 unauthenticated by design (a CA certificate is trust-anchor material meant
 to be distributed, not a secret; the private key never leaves the
@@ -55,6 +61,9 @@ k3s kubectl -n fabric-edge logs -l app=connect-agent --tail=50
 #     -o jsonpath='{.metadata.annotations.fabric\.abluva\.io/registration-ports}'
 # Prefer CONTROL_SERVER_LISTEN_PORT from Connect UI Install (Fabric
 # control-server.agent_listen_port) after Agent Connected → Refresh.
+# Then deploy the launcher:
+#   cd ../../../agent
+#   KUBECTL="k3s kubectl" ./deploy-agent.sh -t <TENANT_ID> -e <ENV_ID> -m <EMAIL> -p <port> --vm
 # (Host-OS apps need NodePort/hostPort — ClusterIP is in-cluster only.)
 ```
 
@@ -66,21 +75,36 @@ k3s kubectl -n fabric-edge logs -l app=connect-agent --tail=50
 
 This removes k3s, its data, and all Fabric components cleanly.
 
+## Manifests (same as Kubernetes)
+
+| File in this directory | Points at |
+|---|---|
+| [`daemonset.yaml`](./daemonset.yaml) | symlink → [`../../kubernetes/daemonset.yaml`](../../kubernetes/daemonset.yaml) |
+| [`networkpolicy-example.yaml`](./networkpolicy-example.yaml) | symlink → [`../../kubernetes/networkpolicy-example.yaml`](../../kubernetes/networkpolicy-example.yaml) |
+
+`install.sh` renders that shared DaemonSet the same way as
+`kubernetes/tenant-start.sh` (python3), then sets `FABRIC_SUBSTRATE=vm`.
+Do **not** keep a divergent inline YAML in the installer.
+
 ## How It Works
 
 1. Installs k3s with `--disable=traefik,servicelb,metrics-server` (minimal
    footprint — we don't need ingress or external load balancers on a
    single-host appliance)
-2. Creates namespace `fabric-edge` with RBAC for Secret + Service management
-3. Deploys the same `connect-agent` DaemonSet manifest as the full K8s path,
-   with `FABRIC_IDENTITY_STORE=kubernetes` (per-node Secret for identity)
-4. Applies sibling `agent/agent-deployment.yaml` (`<tenant-namespace>`, `<tenantId>`, `<envid>`), then tenant NetworkPolicy. Set `X_ABLV_PRINCIPAL` in that YAML to your login email before install (sent as `X-ABLV-Principal`).
+2. Creates namespace `fabric-edge` + CA / bootstrap Secrets
+3. Applies shared `daemonset.yaml` (Service + RBAC + DaemonSet, identity store
+   `kubernetes`)
+4. Applies shared `networkpolicy-example.yaml`
 5. Waits for the Connect Agent pod to reach Running state
+
+Launcher (`Deployment/agent`) is **not** part of this installer. After Agent
+**Connected**, run [`deploy/agent/deploy-agent.sh`](../../../agent/deploy-agent.sh)
+`-t … -e … -m … -p … --vm` (see [`deploy/agent/README.md`](../../../agent/README.md)).
 
 The customer never needs to interact with k3s directly. `k3s kubectl` is
 available for debugging, but the normal path is: install → wait until Agent
-is **Connected** (Approve only if PendingApproval) → customer registrations
-(`agent-svc:5004` for launcher) → apps dial `connect-agent.fabric-edge.svc…:<port>`.
+is **Connected** → deploy launcher → customer registrations
+(`agent-svc:5004`) → apps dial `connect-agent.fabric-edge.svc…:<port>`.
 
 ## Environment File Format
 

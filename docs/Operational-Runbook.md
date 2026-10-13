@@ -1497,11 +1497,11 @@ cd deploy/connect-agent/kubernetes
 cp tenant-start.env.example tenant-start.env
 # Fill: TENANT_*, FABRIC_GATEWAY_ADDRESS, FABRIC_CONTROL_PLANE_URL,
 # CONNECT_AGENT_IMAGE, CA_CERT_FILE, BOOTSTRAP_TOKEN
-# After Agent Connected: CONTROL_SERVER_LISTEN_PORT from Connect UI Refresh
-# (Fabric control-server.agent_listen_port) or svc registration-ports annotation
 ./tenant-start.sh ./tenant-start.env
 kubectl -n "$TENANT_NAMESPACE" get pods -l app=connect-agent
 kubectl -n "$TENANT_NAMESPACE" logs -l app=connect-agent --tail=100
+# After Agent Connected: Refresh Install for CONTROL_SERVER_LISTEN_PORT, then:
+#   cd ../../agent && ./deploy-agent.sh -t "$TENANT_ID" -e "$ENVIRONMENT_ID" -p <port>
 ```
 
 Manual path: `daemonset.yaml` + `networkpolicy-example.yaml` — CA-only Secret
@@ -1509,10 +1509,10 @@ Manual path: `daemonset.yaml` + `networkpolicy-example.yaml` — CA-only Secret
 `FABRIC_IDENTITY_STORE=kubernetes` (recommended). Apps dial
 `connect-agent.<ns>.svc.cluster.local:<port>` (ports from
 `fabric.abluva.io/registration-ports`, also Fabric **`agent_listen_port`**
-after the Agent reports `listen_port` on observed). Launcher
-`CONTROL_SERVER_LISTEN_PORT` → `INFRA_BASE_URL` for PLATFORM control-server.
-Full mechanism: `deploy/connect-agent/README.md` +
-`deploy/secure-agent-net.README.md` Step 5.
+after the Agent reports `listen_port` on observed). Launcher via
+`deploy/agent/deploy-agent.sh` (`CONTROL_SERVER_LISTEN_PORT` →
+`INFRA_BASE_URL`). Full mechanism: `deploy/connect-agent/README.md` +
+`deploy/agent/README.md` + `deploy/secure-agent-net.README.md`.
 
 #### 3b — VM — k3s appliance
 
@@ -1521,6 +1521,8 @@ Full mechanism: `deploy/connect-agent/README.md` +
 sudo ./install.sh --env-file=fabric-edge.env
 k3s kubectl -n fabric-edge get pods -l app=connect-agent   # Running 1/1
 k3s kubectl -n fabric-edge logs -l app=connect-agent --tail=100
+# After Connected:
+#   KUBECTL="k3s kubectl" ./deploy/agent/deploy-agent.sh -t … -e … -p <port> --vm
 ```
 
 Full copy-paste path: [E2E OCI + k3s](#end-to-end-oci-oke--linux-vm-k3s-appliance).

@@ -2,7 +2,9 @@
 
 ## Overview
 
-Connect your Kubernetes cluster (or Linux VM) to the Abluva platform in minutes. This guide walks you through generating a bootstrap token from the platform UI and running a single script to set up the secure connection and launcher.
+Connect your Kubernetes cluster (or Linux VM) to the Abluva platform in minutes. This guide walks you through generating a bootstrap token from the platform UI, installing the Connect Agent, then deploying the launcher once the control-server listen port is known.
+
+Copy/paste task checklist: [`docs/Customer-Connect-Install.md`](../docs/Customer-Connect-Install.md).
 
 Do not commit `ca.crt`, bootstrap tokens, or filled env files.
 
@@ -71,89 +73,30 @@ cd secure-agent-net
 Layout used by this guide:
 
 ```
-connect-agent/kubernetes/          tenant-start.sh
-connect-agent/vm/k3s-appliance/    install.sh
-agent/agent-deployment.yaml        launcher + agent-svc
+connect-agent/kubernetes/          tenant-start.sh   (Connect Agent only)
+connect-agent/vm/k3s-appliance/    install.sh        (Connect Agent only)
+agent/deploy-agent.sh              launcher + agent-svc (after Connected)
+agent/agent-deployment.yaml
 ```
 
 ---
 
-## Step 5: Configure Agent Deployment
+## Step 5: Run the Connect Agent Installer
 
-`agent/agent-deployment.yaml` uses placeholders. The installer replaces:
+**Important:** place the downloaded **`ca.crt`** and Install **env file in the same directory as the `.sh` script** you will run. The env uses `CA_CERT_FILE=./ca.crt` / `CA_FILE=./ca.crt`, which is resolved relative to that directory (not your Downloads folder).
 
-- `<tenant-namespace>` ← `TENANT_NAMESPACE`
-- `<tenantId>` ← `TENANT_ID`
-- `<envid>` ← `ENVIRONMENT_ID`
-- `<control-server-listen-port>` ← `CONTROL_SERVER_LISTEN_PORT` (when set)
-
-**Customer→Platform base URL** (launcher `INFRA_BASE_URL`):
-
-```text
-http://connect-agent.<tenant-namespace>.svc.cluster.local:<control-server-listen-port>
-```
-
-Do **not** use `http://control-server-svc.<saas-ns>.svc.cluster.local:5001` from the tenant cluster — that DNS does not resolve there.
-
-### How `CONTROL_SERVER_LISTEN_PORT` is filled
-
-1. Connect Agent opens one StreamOpen listener per Active registration (base **9443+**).
-2. Agent POSTs `listen_port` on `POST /v1/registrations/:id/observed` (Connect Agent image that includes listen-port reporting).
-3. Fabric exposes it on registrations as **`agent_listen_port`**.
-4. Abluva Connect **Install** snippet reads the PLATFORM reg `display_name=control-server` and, when known, writes `CONTROL_SERVER_LISTEN_PORT=<port>` into the downloadable env. Click **Refresh** after the Agent is **Connected**.
-
-Until that lands, the env line is commented / omitted and the launcher keeps the placeholder — set it manually (below) or re-download after Refresh, then re-run the installer or patch `Deployment/agent` `INFRA_BASE_URL`.
-
-**From Fabric (Platform):**
-
-```bash
-# After Agent reported; look for control-server.agent_listen_port
-curl -sS -H "Authorization: Bearer $TOKEN" -H "X-ABLV-Actor: ops" \
-  "http://127.0.0.1:8080/v1/tenants/${TENANT_ID}/registrations" \
-| jq '.registrations[] | select(.display_name=="control-server") | {id, agent_listen_port}'
-```
-
-**From the customer cluster (same port):**
-
-```bash
-kubectl -n "$TENANT_NAMESPACE" get svc connect-agent \
-  -o jsonpath='{.metadata.annotations.fabric\.abluva\.io/registration-ports}{"\n"}'
-# JSON: {"<reg-uuid>":9444,...} — use the UUID of display_name=control-server
-```
-
-```bash
-CONTROL_SERVER_LISTEN_PORT=9444   # example — your control-server agent_listen_port
-```
-
-**Before running the script**, edit `agent/agent-deployment.yaml` and set **`X_ABLV_PRINCIPAL`** to your login email (this becomes the `X-ABLV-Principal` header on launcher → control-server calls).
-
-```yaml
-- name: X_ABLV_PRINCIPAL
-  value: "you@yourcompany.com"   # your email — required
-- name: X_ABLV_PRINCIPAL_ROLE
-  value: "tenant-admin"          # keep unless your role differs
-```
-
-SaaS tenant/environment IDs in the YAML stay as platform constants. You do not paste a SaaS API key into the launcher YAML.
-
-**Privacy / other launch agents** use the same pattern (`deploy/privacy/`):
-
-| Env | Fabric URL |
+| Flavor | Put `ca.crt` + env here (next to the script) |
 |---|---|
-| control-server | `http://connect-agent.<ns>.svc:<control-server-listen-port>/…` |
-| unified-access | `http://connect-agent.<ns>.svc:<unified-access-listen-port>` |
+| Kubernetes | `connect-agent/kubernetes/` → `tenant-start.sh` + `tenant-start.env` |
+| VM / bare metal | `connect-agent/vm/k3s-appliance/` → `install.sh` + `fabric-edge.env` |
 
-Put `ca.crt` and the Install env file next to the script you will run (Step 6). Ensure `BOOTSTRAP_TOKEN` and `ENVIRONMENT_ID` are set in the env file.
-
----
-
-## Step 6: Run the Setup Script
+Set `BOOTSTRAP_TOKEN` in the env file if it is not already filled. Then run the script **from that directory**.
 
 ### Kubernetes
 
 ```bash
 cd connect-agent/kubernetes
-# ca.crt and tenant-start.env in this directory
+# ca.crt and tenant-start.env must be in this directory
 chmod +x tenant-start.sh
 ./tenant-start.sh ./tenant-start.env
 ```
@@ -162,27 +105,26 @@ chmod +x tenant-start.sh
 
 ```bash
 cd connect-agent/vm/k3s-appliance
-# ca.crt and fabric-edge.env in this directory
+# ca.crt and fabric-edge.env must be in this directory
 chmod +x install.sh
 sudo ./install.sh --env-file=./fabric-edge.env
 ```
 
----
-
-## What the Script Does
+### What this script does
 
 | Step | Action | Notes |
 |------|--------|-------|
 | 1 | Create tenant namespace | Label `abluva.io/tenant=true` (Kubernetes). VM appliance uses `fabric-edge`. |
 | 2 | Create secrets | CA + bootstrap material for the Connect Agent |
-| 3 | Deploy Connect Agent | DaemonSet — Agent dials **out** to the platform gateway and control plane (no Skupper site, MetalLB, or link-token redeem) |
-| 4 | Deploy launcher | Applies `agent/agent-deployment.yaml` → `Deployment/agent` + `Service/agent-svc:5004` (must have set `X_ABLV_PRINCIPAL` email in Step 5) |
-| 5 | Apply NetworkPolicy | Same-ns + Abluva SaaS ns; opt-in cross-tenant with `abluva.io/cross-tenant=true` |
-| 6 | Wait for Agent | Waits until `daemonset/connect-agent` is ready |
+| 3 | Deploy Connect Agent | DaemonSet — Agent dials **out** to the platform gateway and control plane |
+| 4 | Apply NetworkPolicy | Same-ns + Abluva SaaS ns; opt-in cross-tenant with `abluva.io/cross-tenant=true` |
+| 5 | Wait for Agent | Waits until `daemonset/connect-agent` is ready |
+
+The **launcher** is not deployed here — that needs `CONTROL_SERVER_LISTEN_PORT` (Step 7).
 
 ---
 
-## Step 7: Verify Setup
+## Step 6: Verify Connect Agent
 
 ### Kubernetes
 
@@ -191,17 +133,60 @@ NAMESPACE=<your-tenant-namespace>
 
 kubectl get pods -n $NAMESPACE
 kubectl get daemonset connect-agent -n $NAMESPACE
-kubectl get svc agent-svc -n $NAMESPACE
 ```
 
 ### VM / bare metal
 
 ```bash
 k3s kubectl -n fabric-edge get pods
-k3s kubectl -n fabric-edge get svc agent-svc
 ```
 
-In the Abluva app, confirm the Agent shows **Connected** on the **Connect Agent** step before creating registrations.
+In the Abluva app, confirm the Agent shows **Connected** on the **Connect Agent** step (Approve if PendingApproval).
+
+---
+
+## Step 7: Deploy the launcher
+
+After **Connected**, you need four values:
+
+| Input | Source |
+|---|---|
+| Tenant ID | Install env / Tenants page |
+| Environment ID | Install env / Environments |
+| Login email | Your Abluva login (→ `X_ABLV_PRINCIPAL`) |
+| Port | Install → **Refresh** (`CONTROL_SERVER_LISTEN_PORT`), or svc annotation below |
+
+```bash
+kubectl -n "$TENANT_NAMESPACE" get svc connect-agent \
+  -o jsonpath='{.metadata.annotations.fabric\.abluva\.io/registration-ports}{"\n"}'
+# use the port for PLATFORM reg display_name=control-server
+```
+
+### Kubernetes
+
+```bash
+cd agent
+chmod +x deploy-agent.sh
+./deploy-agent.sh -t <TENANT_ID> -e <ENVIRONMENT_ID> -m <LOGIN_EMAIL> -p <PORT>
+```
+
+The script derives the namespace, writes `deploy-agent.env`, and applies the launcher.
+
+### VM / bare metal
+
+```bash
+cd agent
+KUBECTL="k3s kubectl" ./deploy-agent.sh -t <TENANT_ID> -e <ENVIRONMENT_ID> -m <LOGIN_EMAIL> -p <PORT> --vm
+```
+
+Verify:
+
+```bash
+kubectl -n <tenant-ns> get pods,svc -l tier=agent
+# VM: k3s kubectl -n fabric-edge get pods,svc -l tier=agent
+```
+
+See [`agent/README.md`](./agent/README.md).
 
 ---
 
@@ -226,6 +211,8 @@ That `host:port` is what **platform** apps use (Gateway inbound). Prefix with `h
 ---
 
 ## Step 9: Register Resource in Platform (launcher create)
+
+(Requires Step 7 launcher deployed and Step 8 registration created.)
 
 After customer registrations succeed on the **Connect Agent** tab:
 
@@ -368,8 +355,9 @@ git pull
    kubectl -n "$NS" get svc connect-agent \
      -o jsonpath='{.metadata.annotations.fabric\.abluva\.io/registration-ports}{"\n"}'
    ```
-   Use the port for PLATFORM reg `display_name=control-server`, set
-   `CONTROL_SERVER_LISTEN_PORT`, re-run `tenant-start.sh` (or patch Deployment/agent).
+   Use the port for PLATFORM reg `display_name=control-server`, then re-run
+   `agent/deploy-agent.sh -t … -e … -p <port>` (or patch Deployment/agent
+   `INFRA_BASE_URL`).
 
 Do **not** use `http://control-server-svc.<saas-ns>.svc…` from the customer cluster.
 
