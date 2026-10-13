@@ -14,7 +14,7 @@
 # Usage:
 #   ./deploy-agent.sh -t <TENANT_ID> -e <ENVIRONMENT_ID> -m <EMAIL> -p <PORT>
 #
-# VM / k3s appliance (namespace is always fabric-edge):
+# VM / k3s appliance (same derived tenant namespace as K8s):
 #   KUBECTL="k3s kubectl" ./deploy-agent.sh -t ... -e ... -m ... -p ... --vm
 #
 # Optional:
@@ -49,7 +49,7 @@ Options:
   -e, --environment-id     Environment UUID
   -m, --email              Login email (X_ABLV_PRINCIPAL / X-ABLV-Principal)
   -p, --port               control-server agent_listen_port (required)
-      --vm                 use namespace fabric-edge (k3s appliance)
+      --vm                 use KUBECTL=k3s kubectl if unset (same ns as K8s)
       --namespace=<ns>     override namespace (default: <tenant>-<env[:26]>)
       --env-out=<path>     write env here (default: ./deploy-agent.env)
       --env-file=<path>    use existing env instead of flags
@@ -129,12 +129,13 @@ escape_sed() {
 }
 EMAIL_SED="$(escape_sed "$PRINCIPAL_EMAIL")"
 
+# --vm: prefer k3s kubectl when caller did not override KUBECTL.
+if [[ "$VM_MODE" -eq 1 && "$KUBECTL" == "kubectl" ]]; then
+  KUBECTL="k3s kubectl"
+fi
+# Same namespace for K8s and VM appliance (UI Install convention).
 if [[ -z "$TENANT_NAMESPACE" ]]; then
-  if [[ "$VM_MODE" -eq 1 ]]; then
-    TENANT_NAMESPACE="fabric-edge"
-  else
-    TENANT_NAMESPACE="$(derive_namespace "$TENANT_ID" "$ENVIRONMENT_ID")"
-  fi
+  TENANT_NAMESPACE="$(derive_namespace "$TENANT_ID" "$ENVIRONMENT_ID")"
 fi
 
 if [[ ! -f "$AGENT_DEPLOY_YAML" ]]; then

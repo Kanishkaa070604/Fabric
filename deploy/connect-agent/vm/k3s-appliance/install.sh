@@ -37,7 +37,7 @@
 # What gets installed:
 #   - /usr/local/bin/k3s (single static binary, ~60MB)
 #   - systemd unit: k3s.service (managed by the k3s installer)
-#   - Namespace: fabric-edge
+#   - Namespace: same as K8s — TENANT_NAMESPACE or <tenantId>-<envId[:26]>
 #   - DaemonSet/Service/RBAC: same kubernetes/daemonset.yaml as K8s customers
 #   - Secrets: connect-agent-tls (CA), fabric-edge-bootstrap (token)
 #
@@ -52,17 +52,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 K3S_VERSION="${K3S_VERSION:-}"  # empty = latest stable
 AGENT_IMAGE="${AGENT_IMAGE:-ghcr.io/abluva/connect-agent:latest}"
 SAAS_NAMESPACE="${SAAS_NAMESPACE:-3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c}"
-NAMESPACE="fabric-edge"
 FABRIC_IDENTITY_STORE="kubernetes"
 # YAML next to this script (copies of kubernetes/ manifests).
 DAEMONSET_YAML="${DAEMONSET_YAML:-$SCRIPT_DIR/daemonset.yaml}"
 NP_YAML="${NP_YAML:-$SCRIPT_DIR/networkpolicy-example.yaml}"
+
+# Same namespace convention as Connect UI / tenant-start.sh (fabric.js):
+#   <tenantId>-<environmentId without leading tmp-, first 26 chars>
+derive_namespace() {
+  local tid="$1" eid="$2"
+  local env_part
+  env_part="$(printf '%s' "$eid" | sed 's/^tmp-//' | cut -c1-26)"
+  printf '%s-%s' "$tid" "$env_part"
+}
 
 # --- Parse args ---
 BOOTSTRAP_TOKEN=""
 GATEWAY_ADDRESS=""
 CONTROL_PLANE_URL=""
 TENANT_ID=""
+TENANT_NAMESPACE=""
+ENVIRONMENT_ID=""
 CA_FILE=""
 CA_URL=""
 ENV_FILE=""
@@ -102,6 +112,7 @@ if [[ -n "$ENV_FILE" ]]; then
   GATEWAY_ADDRESS="${GATEWAY_ADDRESS:-${FABRIC_GATEWAY_ADDRESS:-}}"
   CONTROL_PLANE_URL="${CONTROL_PLANE_URL:-${FABRIC_CONTROL_PLANE_URL:-}}"
   TENANT_ID="${TENANT_ID:-${FABRIC_TENANT_ID:-}}"
+  TENANT_NAMESPACE="${TENANT_NAMESPACE:-${NAMESPACE:-}}"
   TLS_SERVER_NAME="${TLS_SERVER_NAME:-${FABRIC_TLS_SERVER_NAME:-}}"
   ENVIRONMENT_ID="${ENVIRONMENT_ID:-}"
   AGENT_IMAGE="${AGENT_IMAGE:-${CONNECT_AGENT_IMAGE:-$AGENT_IMAGE}}"
@@ -113,7 +124,13 @@ fi
 [[ -n "$GATEWAY_ADDRESS" ]] || { echo "ERROR: --gateway is required"; usage; }
 [[ -n "$CONTROL_PLANE_URL" ]] || { echo "ERROR: --control-plane is required"; usage; }
 [[ -n "$TENANT_ID" ]] || { echo "ERROR: --tenant-id is required"; usage; }
-# ENVIRONMENT_ID is used by deploy/agent/deploy-agent.sh (launcher), not this script.
+[[ -n "$ENVIRONMENT_ID" ]] || { echo "ERROR: ENVIRONMENT_ID is required (same as K8s — used for tenant namespace)"; exit 1; }
+
+# Namespace: same as kubernetes/tenant-start.sh
+if [[ -z "$TENANT_NAMESPACE" ]]; then
+  TENANT_NAMESPACE="$(derive_namespace "$TENANT_ID" "$ENVIRONMENT_ID")"
+fi
+NAMESPACE="$TENANT_NAMESPACE"
 
 if [[ ! -f "$DAEMONSET_YAML" ]]; then
   echo "ERROR: missing DaemonSet YAML: $DAEMONSET_YAML"
@@ -166,13 +183,14 @@ else
   CA_CONTENT=""
 fi
 
-# --- Step 3: Create namespace + secrets ---
+# --- Step 3: Create tenant namespace + secrets (same shape as tenant-start.sh) ---
 echo "[3/6] Creating namespace and secrets..."
+echo "  Namespace: $TENANT_NAMESPACE  (tenant=$TENANT_ID env=$ENVIRONMENT_ID)"
 k3s kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ${NAMESPACE}
+  name: ${TENANT_NAMESPACE}
   labels:
     abluva.io/tenant: "true"
 EOF
@@ -316,7 +334,7 @@ for i in $(seq 1 60); do
     echo ""
     echo "  Next:"
     echo "    1. Check pods:"
-    echo "         k3s kubectl -n $NAMESPACE get pods"
+    echo "         k3s kubectl -n $TENANT_NAMESPACE get pods"
     echo "       Expect Running 1/1: connect-agent"
     echo ""
     echo "    2. Abluva UI → Subscriptions → Connect Agent:"

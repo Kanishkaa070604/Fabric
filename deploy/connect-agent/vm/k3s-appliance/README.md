@@ -47,11 +47,12 @@ curl -sSL https://install.fabric.abluva.io | sh -s -- \
 ## After Install
 
 ```bash
-# Status
-k3s kubectl -n fabric-edge get pods
+# Status (TENANT_NAMESPACE from Install env / derived)
+NS=<tenant-id>-<env-id-first-26>
+k3s kubectl -n "$NS" get pods
 
 # Logs
-k3s kubectl -n fabric-edge logs -l app=connect-agent --tail=50
+k3s kubectl -n "$NS" logs -l app=connect-agent --tail=50
 
 # Approve in UI, then create registrations
 # Apps (as pods on this k3s) dial:
@@ -93,10 +94,10 @@ When you change the K8s YAML, copy it here too.
 1. Installs k3s with `--disable=traefik,servicelb,metrics-server` (minimal
    footprint — we don't need ingress or external load balancers on a
    single-host appliance)
-2. Creates namespace `fabric-edge` + CA / bootstrap Secrets
-3. Applies shared `daemonset.yaml` (Service + RBAC + DaemonSet, identity store
-   `kubernetes`)
-4. Applies shared `networkpolicy-example.yaml`
+2. Creates the **tenant namespace** (same as K8s:
+   `TENANT_NAMESPACE` or `<tenantId>-<envId first 26 chars>`) + CA / bootstrap Secrets
+3. Applies `daemonset.yaml` into that namespace (Service + RBAC + DaemonSet)
+4. Applies `networkpolicy-example.yaml` into that namespace
 5. Waits for the Connect Agent pod to reach Running state
 
 Launcher (`Deployment/agent`) is **not** part of this installer. After Agent

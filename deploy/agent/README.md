@@ -53,7 +53,8 @@ KUBECTL="k3s kubectl" ./deploy-agent.sh \
   --vm
 ```
 
-`--vm` sets namespace to `fabric-edge`.
+`--vm` uses `k3s kubectl` and the **same** derived tenant namespace as Kubernetes
+(`<tenantId>-<envId first 26 chars>`).
 
 Full customer task text: [`docs/Customer-Connect-Install.md`](../../docs/Customer-Connect-Install.md).
 
