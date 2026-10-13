@@ -77,14 +77,16 @@ This removes k3s, its data, and all Fabric components cleanly.
 
 ## Manifests (same as Kubernetes)
 
-| File in this directory | Points at |
-|---|---|
-| [`daemonset.yaml`](./daemonset.yaml) | symlink → [`../../kubernetes/daemonset.yaml`](../../kubernetes/daemonset.yaml) |
-| [`networkpolicy-example.yaml`](./networkpolicy-example.yaml) | symlink → [`../../kubernetes/networkpolicy-example.yaml`](../../kubernetes/networkpolicy-example.yaml) |
+Real copies live next to `install.sh` (so a clone always has them):
 
-`install.sh` renders that shared DaemonSet the same way as
+| File in this directory | Keep in sync with |
+|---|---|
+| [`daemonset.yaml`](./daemonset.yaml) | [`../../kubernetes/daemonset.yaml`](../../kubernetes/daemonset.yaml) |
+| [`networkpolicy-example.yaml`](./networkpolicy-example.yaml) | [`../../kubernetes/networkpolicy-example.yaml`](../../kubernetes/networkpolicy-example.yaml) |
+
+`install.sh` renders `daemonset.yaml` the same way as
 `kubernetes/tenant-start.sh` (python3), then sets `FABRIC_SUBSTRATE=vm`.
-Do **not** keep a divergent inline YAML in the installer.
+When you change the K8s YAML, copy it here too.
 
 ## How It Works
 

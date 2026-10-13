@@ -32,7 +32,7 @@
 #   - Outbound TCP to FABRIC_GATEWAY_ADDRESS host:port (typically :8443)
 #     and HTTPS to FABRIC_CONTROL_PLANE_URL
 #   - daemonset.yaml + networkpolicy-example.yaml next to this script
-#     (symlinks to ../../kubernetes/ — same manifests as tenant-start.sh)
+#     (same content as ../../kubernetes/ — keep copies in sync)
 #
 # What gets installed:
 #   - /usr/local/bin/k3s (single static binary, ~60MB)
@@ -54,19 +54,9 @@ AGENT_IMAGE="${AGENT_IMAGE:-ghcr.io/abluva/connect-agent:latest}"
 SAAS_NAMESPACE="${SAAS_NAMESPACE:-3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c}"
 NAMESPACE="fabric-edge"
 FABRIC_IDENTITY_STORE="kubernetes"
-# Prefer YAML next to this script (symlink/copy); else shared kubernetes/ path.
-_resolve_yaml() {
-  local name="$1"
-  if [[ -f "$SCRIPT_DIR/$name" ]]; then
-    printf '%s' "$SCRIPT_DIR/$name"
-  elif [[ -f "$SCRIPT_DIR/../../kubernetes/$name" ]]; then
-    printf '%s' "$SCRIPT_DIR/../../kubernetes/$name"
-  else
-    printf ''
-  fi
-}
-DAEMONSET_YAML="${DAEMONSET_YAML:-$(_resolve_yaml daemonset.yaml)}"
-NP_YAML="${NP_YAML:-$(_resolve_yaml networkpolicy-example.yaml)}"
+# YAML next to this script (copies of kubernetes/ manifests).
+DAEMONSET_YAML="${DAEMONSET_YAML:-$SCRIPT_DIR/daemonset.yaml}"
+NP_YAML="${NP_YAML:-$SCRIPT_DIR/networkpolicy-example.yaml}"
 
 # --- Parse args ---
 BOOTSTRAP_TOKEN=""
@@ -125,12 +115,9 @@ fi
 [[ -n "$TENANT_ID" ]] || { echo "ERROR: --tenant-id is required"; usage; }
 # ENVIRONMENT_ID is used by deploy/agent/deploy-agent.sh (launcher), not this script.
 
-if [[ -z "$DAEMONSET_YAML" || ! -f "$DAEMONSET_YAML" ]]; then
-  echo "ERROR: missing DaemonSet YAML (looked for:"
-  echo "         $SCRIPT_DIR/daemonset.yaml"
-  echo "         $SCRIPT_DIR/../../kubernetes/daemonset.yaml)"
-  echo "       Clone/pull a repo that includes deploy/connect-agent/kubernetes/daemonset.yaml,"
-  echo "       or: ln -sf ../../kubernetes/daemonset.yaml $SCRIPT_DIR/daemonset.yaml"
+if [[ ! -f "$DAEMONSET_YAML" ]]; then
+  echo "ERROR: missing DaemonSet YAML: $DAEMONSET_YAML"
+  echo "       Expected daemonset.yaml next to install.sh (same as kubernetes/daemonset.yaml)."
   exit 1
 fi
 if ! command -v python3 >/dev/null 2>&1; then

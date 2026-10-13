@@ -17,7 +17,7 @@ Layout:
 |---|---|
 | [`kubernetes/`](./kubernetes/) | Existing-cluster installer: `tenant-start.sh`, `daemonset.yaml`, NetworkPolicy |
 | [`../agent/`](../agent/) | Launcher (`deploy-agent.sh` + `agent-deployment.yaml`) — **after** Agent Connected. See [`../agent/README.md`](../agent/README.md). |
-| [`vm/k3s-appliance/`](./vm/k3s-appliance/) | VM / bare metal — `install.sh` + **symlinks to the same** `daemonset.yaml` / NetworkPolicy as Kubernetes |
+| [`vm/k3s-appliance/`](./vm/k3s-appliance/) | VM / bare metal — `install.sh` + copies of the same `daemonset.yaml` / NetworkPolicy as Kubernetes |
 | [`vm/systemd/`](./vm/systemd/) | VM fallback (single binary) |
 | [`ecs/`](./ecs/) | ECS (coming soon) |
 | `enable-oidc-*.sh` | Common OIDC prep (EKS / RKE2 / k3s) |
