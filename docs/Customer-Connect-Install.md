@@ -18,13 +18,13 @@ Do not commit `ca.crt`, bootstrap tokens, or filled env files.
 
 6. On a machine that can reach your cluster or VM:
    - `git clone https://github.com/abluva/secure-agent-net.git`
-   - Put the downloaded **`ca.crt`** and Install **env file in the same directory as the `.sh` script** you will run. The env file’s `CA_CERT_FILE=./ca.crt` (or `CA_FILE=./ca.crt`) expects `ca.crt` next to that script — not in Downloads.
+   - Put the downloaded **`ca.crt`** and Install **env file in the same directory as the `.sh` script** you will run. The env file’s `CA_CERT_FILE=./ca.crt` expects `ca.crt` next to that script — not in Downloads.
      - Kubernetes: place both in `secure-agent-net/connect-agent/kubernetes/` (next to `tenant-start.sh`)
      - VM: place both in `secure-agent-net/connect-agent/vm/k3s-appliance/` (next to `install.sh`)
    - Open the env file and set `BOOTSTRAP_TOKEN` if it is not already filled.
    - From that directory:
      - Kubernetes: `chmod +x tenant-start.sh` then `./tenant-start.sh ./tenant-start.env`
-     - VM: `chmod +x install.sh` then `sudo ./install.sh --env-file=./fabric-edge.env`
+     - VM: `chmod +x install.sh` then `sudo ./install.sh` (loads `./fabric-edge.env`)
 
    This installs the **Connect Agent** only. The **launcher** is deployed in a later step, after the Agent is Connected and the listen port is known.
 

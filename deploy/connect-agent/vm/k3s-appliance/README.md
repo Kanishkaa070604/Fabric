@@ -17,9 +17,10 @@ the Connect Agent as a DaemonSet inside it.
 ## Usage
 
 Place downloaded **`ca.crt`** and **`fabric-edge.env` in the same directory as
-`install.sh`** before running (paths like `CA_FILE=./ca.crt` are relative to
-that directory). After Agent Connected, deploy the launcher from
-`deploy/agent/` — see [`../../agent/README.md`](../../agent/README.md) and
+`install.sh`** before running (paths like `CA_CERT_FILE=./ca.crt` are relative to
+that directory — same vars as `kubernetes/tenant-start.env`). After Agent
+Connected, deploy the launcher from `deploy/agent/` — see
+[`../../agent/README.md`](../../agent/README.md) and
 [`../../../docs/Customer-Connect-Install.md`](../../../docs/Customer-Connect-Install.md).
 
 `--ca-url` points at `GET /v1/ca-bundle` on the control plane — shipped,
@@ -37,11 +38,12 @@ curl -sSL https://install.fabric.abluva.io | sh -s -- \
   --tenant-id=<TENANT_UUID> \
   --ca-url=https://cp.platform.example.com/v1/ca-bundle
 
-# Or from a local copy with an env file:
-./install.sh --env-file=./fabric-edge.env
+# Or from a local copy (reads fabric-edge.env next to install.sh):
+./install.sh
+# or: ./install.sh ./fabric-edge.env
 
 # Custom Agent image:
-./install.sh --env-file=./fabric-edge.env --image=registry.example.com/connect-agent:v1.2.3
+./install.sh ./fabric-edge.env --image=registry.example.com/connect-agent:v1.2.3
 ```
 
 ## After Install
@@ -56,9 +58,9 @@ k3s kubectl -n "$NS" logs -l app=connect-agent --tail=50
 
 # Approve in UI, then create registrations
 # Apps (as pods on this k3s) dial:
-#   connect-agent.fabric-edge.svc.cluster.local:<port>
+#   connect-agent.${NS}.svc.cluster.local:<port>
 # Port map:
-#   k3s kubectl -n fabric-edge get svc connect-agent \
+#   k3s kubectl -n "$NS" get svc connect-agent \
 #     -o jsonpath='{.metadata.annotations.fabric\.abluva\.io/registration-ports}'
 # Prefer CONTROL_SERVER_LISTEN_PORT from Connect UI Install (Fabric
 # control-server.agent_listen_port) after Agent Connected → Refresh.
@@ -107,7 +109,7 @@ Launcher (`Deployment/agent`) is **not** part of this installer. After Agent
 The customer never needs to interact with k3s directly. `k3s kubectl` is
 available for debugging, but the normal path is: install → wait until Agent
 is **Connected** → deploy launcher → customer registrations
-(`agent-svc:5004`) → apps dial `connect-agent.fabric-edge.svc…:<port>`.
+(`agent-svc:5004`) → apps dial `connect-agent.<TENANT_NAMESPACE>.svc…:<port>`.
 
 ## Environment File Format
 

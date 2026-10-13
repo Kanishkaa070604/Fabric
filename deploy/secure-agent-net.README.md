@@ -42,7 +42,7 @@ That file already includes gateway address, control-plane URL, namespace, tenant
 ### Namespace, Tenant ID, Environment ID
 Confirm these from the Install file (or the Environments / Tenants pages if you need them elsewhere):
 
-- **Namespace** — `TENANT_NAMESPACE` (Kubernetes) or `fabric-edge` (VM appliance)
+- **Namespace** — `TENANT_NAMESPACE` (same for Kubernetes and VM appliance)
 - **Tenant ID** — `TENANT_ID`
 - **Environment ID** — `ENVIRONMENT_ID`
 
@@ -83,7 +83,7 @@ agent/agent-deployment.yaml
 
 ## Step 5: Run the Connect Agent Installer
 
-**Important:** place the downloaded **`ca.crt`** and Install **env file in the same directory as the `.sh` script** you will run. The env uses `CA_CERT_FILE=./ca.crt` / `CA_FILE=./ca.crt`, which is resolved relative to that directory (not your Downloads folder).
+**Important:** place the downloaded **`ca.crt`** and Install **env file in the same directory as the `.sh` script** you will run. Both K8s and VM env files use `CA_CERT_FILE=./ca.crt`, resolved relative to that directory (not your Downloads folder).
 
 | Flavor | Put `ca.crt` + env here (next to the script) |
 |---|---|
@@ -107,7 +107,7 @@ chmod +x tenant-start.sh
 cd connect-agent/vm/k3s-appliance
 # ca.crt and fabric-edge.env must be in this directory
 chmod +x install.sh
-sudo ./install.sh --env-file=./fabric-edge.env
+sudo ./install.sh
 ```
 
 ### What this script does

@@ -624,23 +624,26 @@ k3s appliance on `aarav-ai` (`deploy/connect-agent/vm/k3s-appliance/`).
    kubectl -n fabric-control get secret fabric-gateway-tls \
      -o jsonpath='{.data.gateway-cert\.pem}' | base64 -d > gateway.crt
    ```
-3. On VM — `fabric-edge.env`:
+3. On VM — `fabric-edge.env` (same keys as `tenant-start.env`):
    ```bash
-   FABRIC_BOOTSTRAP_TOKEN=<from bootstrap-token>
+   TENANT_NAMESPACE=<tenantId>-<envId first 26 chars>
+   TENANT_ID=3407e407-792a-452d-8bb4-03c54ac34d52
    FABRIC_GATEWAY_ADDRESS=fabric.abluva.com:8443
    FABRIC_CONTROL_PLANE_URL=http://fabric.abluva.com:8080
-   FABRIC_TENANT_ID=3407e407-792a-452d-8bb4-03c54ac34d52
-   CA_FILE=/path/to/gateway.crt          # Gateway server cert, NOT agent-ca.crt
-   AGENT_IMAGE=phx.ocir.io/axsfgj15p1je/connect-agent:v1
+   CONNECT_AGENT_IMAGE=phx.ocir.io/axsfgj15p1je/connect-agent:v1
+   CA_CERT_FILE=./ca.crt                 # Gateway server cert, NOT agent-ca.crt
+   BOOTSTRAP_TOKEN=<from bootstrap-token>
+   ENVIRONMENT_ID=<env uuid>
    ```
-4. `sudo ./install.sh --env-file=./fabric-edge.env` (needs `agent-ca.crt` only if you
-   mistakenly used that name — prefer `CA_FILE=gateway.crt` as above).
+4. Put `ca.crt` + `fabric-edge.env` next to `install.sh`, then:
+   `sudo ./install.sh`
 5. Distroless UID (if `CreateContainerConfigError`):
    ```bash
-   k3s kubectl -n fabric-edge patch ds connect-agent --type=json -p='[
+   NS=<TENANT_NAMESPACE>
+   k3s kubectl -n "$NS" patch ds connect-agent --type=json -p='[
      {"op":"add","path":"/spec/template/spec/containers/0/securityContext/runAsUser","value":65532}
    ]'
-   k3s kubectl -n fabric-edge delete pod -l app=connect-agent
+   k3s kubectl -n "$NS" delete pod -l app=connect-agent
    ```
 6. Logs: `enroll_submitted` → `PendingApproval` → after NLB/CA fix → `tunnel_ready` → `agent_running`.
 7. CloudShell — approve:
@@ -767,7 +770,7 @@ Ambient + PERMISSIVE after Gateway exits the tunnel.
 | In-cluster `openssl` → `CN=fabric.abluva.com`, public still RST | NLB/listener/backend mismatch | `oci nlb listener list` + `backend list`; listener `8443` → `ghostunnel-8443` |
 | `ErrImagePull` / `platform not found` on VM | Image built on Mac **arm64**; VM is **amd64** | `docker build --platform linux/amd64` + push; `docker buildx imagetools inspect` |
 | `CreateContainerConfigError` on connect-agent | Distroless non-root needs UID | Patch DaemonSet `runAsUser: 65532` |
-| `tls: certificate signed by unknown authority` after tunnel path fixed | Agent `ca.crt` was **agent-ca** (signs leaves); Gateway cert is **self-signed** | `connect-agent-tls` / `CA_FILE` = **`gateway.crt`** (`fabric-gateway-tls` → `gateway-cert.pem`) |
+| `tls: certificate signed by unknown authority` after tunnel path fixed | Agent `ca.crt` was **agent-ca** (signs leaves); Gateway cert is **self-signed** | `connect-agent-tls` / `CA_CERT_FILE` = **`gateway.crt`** (`fabric-gateway-tls` → `gateway-cert.pem`) |
 | Fetch CA / `GET /v1/ca-bundle` returns `CN=fabric-edge-ca` | `FABRIC_GATEWAY_CERT_FILE` unset or `fabric-gateway-tls` missing in **SaaS** ns | Mirror `fabric-gateway-tls` into SaaS ns; mount `/etc/fabric/gateway-tls`; set `FABRIC_GATEWAY_CERT_FILE`; restart CP. Expect `CN=fabric.abluva.com` |
 | `k8s_service_reconcile_failed` / `spec.ports: Required` | No Active registrations yet (empty port list) | Noise until first registration; then Service gets ports |
 | `POST /v1/tenants/$TENANT/registrations` → `not_found` | Wrong path | Use **`POST /v1/registrations`** with `tenant_id`, `display_name`, `destination_kind`, `host`, `port` |
