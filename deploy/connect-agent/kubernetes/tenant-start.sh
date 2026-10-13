@@ -47,13 +47,29 @@ source "$ENV_FILE"
 set +a
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-: "${TENANT_NAMESPACE:?TENANT_NAMESPACE required}"
+
+# Same namespace convention as Connect UI / deploy-agent.sh:
+#   <tenantId>-<environmentId without leading tmp-, first 26 chars>
+derive_namespace() {
+  local tid="$1" eid="$2"
+  local env_part
+  env_part="$(printf '%s' "$eid" | sed 's/^tmp-//' | cut -c1-26)"
+  printf '%s-%s' "$tid" "$env_part"
+}
+
 : "${TENANT_ID:?TENANT_ID required}"
 : "${FABRIC_GATEWAY_ADDRESS:?FABRIC_GATEWAY_ADDRESS required}"
 : "${FABRIC_CONTROL_PLANE_URL:?FABRIC_CONTROL_PLANE_URL required}"
 : "${CONNECT_AGENT_IMAGE:?CONNECT_AGENT_IMAGE required}"
 : "${CA_CERT_FILE:?CA_CERT_FILE required}"
 : "${BOOTSTRAP_TOKEN:?BOOTSTRAP_TOKEN required}"
+
+# Prefer TENANT_NAMESPACE from env; else derive from TENANT_ID + ENVIRONMENT_ID.
+if [[ -z "${TENANT_NAMESPACE:-}" ]]; then
+  : "${ENVIRONMENT_ID:?ENVIRONMENT_ID required to derive TENANT_NAMESPACE (or set TENANT_NAMESPACE)}"
+  TENANT_NAMESPACE="$(derive_namespace "$TENANT_ID" "$ENVIRONMENT_ID")"
+  echo "[OK] Derived TENANT_NAMESPACE=$TENANT_NAMESPACE"
+fi
 
 if [[ ! -f "$CA_CERT_FILE" ]]; then
   echo "Error: CA_CERT_FILE not found: $CA_CERT_FILE"

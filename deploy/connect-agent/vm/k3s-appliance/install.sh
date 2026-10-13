@@ -33,14 +33,15 @@
 #   - curl or wget; root access; python3 (renders DaemonSet YAML)
 #   - ca.crt + fabric-edge.env in the SAME directory as this script
 #   - fabric-edge.env requires (same as tenant-start.sh):
-#       TENANT_NAMESPACE TENANT_ID FABRIC_GATEWAY_ADDRESS
-#       FABRIC_CONTROL_PLANE_URL CONNECT_AGENT_IMAGE CA_CERT_FILE BOOTSTRAP_TOKEN
+#       TENANT_ID FABRIC_GATEWAY_ADDRESS FABRIC_CONTROL_PLANE_URL
+#       CONNECT_AGENT_IMAGE CA_CERT_FILE BOOTSTRAP_TOKEN
+#       + TENANT_NAMESPACE or ENVIRONMENT_ID (to derive ns)
 #   - daemonset.yaml + networkpolicy-example.yaml next to this script
 #
 # What gets installed:
 #   - /usr/local/bin/k3s (single static binary, ~60MB)
 #   - systemd unit: k3s.service (managed by the k3s installer)
-#   - Namespace: TENANT_NAMESPACE (same as K8s)
+#   - Namespace: TENANT_NAMESPACE or <tenantId>-<envId[:26]> (same as K8s)
 #   - DaemonSet/Service/RBAC: same daemonset.yaml as K8s customers
 #   - Secrets: connect-agent-tls (CA), fabric-edge-bootstrap (token)
 #
@@ -114,15 +115,31 @@ TENANT_ID="${TENANT_ID:-${FABRIC_TENANT_ID:-}}"
 CONNECT_AGENT_IMAGE="${CONNECT_AGENT_IMAGE:-${AGENT_IMAGE:-}}"
 CA_CERT_FILE="${CA_CERT_FILE:-${CA_FILE:-}}"
 TENANT_NAMESPACE="${TENANT_NAMESPACE:-${NAMESPACE:-}}"
+ENVIRONMENT_ID="${ENVIRONMENT_ID:-}"
 
-# Same required vars as tenant-start.sh (lines 50–56)
-: "${TENANT_NAMESPACE:?TENANT_NAMESPACE required}"
+# Same namespace convention as Connect UI / deploy-agent.sh / Kubernetes Install:
+#   <tenantId>-<environmentId without leading tmp-, first 26 chars>
+derive_namespace() {
+  local tid="$1" eid="$2"
+  local env_part
+  env_part="$(printf '%s' "$eid" | sed 's/^tmp-//' | cut -c1-26)"
+  printf '%s-%s' "$tid" "$env_part"
+}
+
 : "${TENANT_ID:?TENANT_ID required}"
 : "${FABRIC_GATEWAY_ADDRESS:?FABRIC_GATEWAY_ADDRESS required}"
 : "${FABRIC_CONTROL_PLANE_URL:?FABRIC_CONTROL_PLANE_URL required}"
 : "${CONNECT_AGENT_IMAGE:?CONNECT_AGENT_IMAGE required}"
 : "${CA_CERT_FILE:?CA_CERT_FILE required}"
 : "${BOOTSTRAP_TOKEN:?BOOTSTRAP_TOKEN required}"
+
+# Prefer TENANT_NAMESPACE from env; else derive from TENANT_ID + ENVIRONMENT_ID
+# (same as deploy-agent.sh — fabric-edge.env from older Install snippets often omits ns).
+if [[ -z "${TENANT_NAMESPACE:-}" ]]; then
+  : "${ENVIRONMENT_ID:?ENVIRONMENT_ID required to derive TENANT_NAMESPACE (or set TENANT_NAMESPACE)}"
+  TENANT_NAMESPACE="$(derive_namespace "$TENANT_ID" "$ENVIRONMENT_ID")"
+  echo "[OK] Derived TENANT_NAMESPACE=$TENANT_NAMESPACE"
+fi
 
 if [[ ! -f "$CA_CERT_FILE" ]]; then
   echo "ERROR: CA_CERT_FILE not found: $CA_CERT_FILE"
