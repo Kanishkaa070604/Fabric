@@ -298,29 +298,60 @@ curl -sk --http1.1 "$ISSUER/openid/v1/jwks" | jq '.keys|length'
 
 ## 5) Cloud Shell — inbound TLS SAN for this tenant
 
-Wildcard `*.connect.abluva.com` does **not** match
-`k3s-oidc.<tenant_id>.connect.abluva.com`. The inbound cert must include:
+**Do this for every tenant that uses inbound OIDC.** Gateway fetches JWKS at
+`k3s-oidc.<TENANT>.connect.abluva.com:8444`. Wildcard `*.connect.abluva.com`
+does **not** match that name (extra DNS label). The inbound cert must include:
 
 ```text
 *.<TENANT>.connect.abluva.com
 ```
 
+Skip reissue only if that SAN is already on the live cert. When adding a new
+tenant, **keep every existing tenant SAN** — replacing the cert with only the
+new name breaks JWKS for older tenants.
+
+### 5a) Check whether this tenant is already covered
+
+```bash
+echo | openssl s_client -connect fabric.abluva.com:8444 \
+  -servername "k3s-oidc.${TENANT}.connect.abluva.com" \
+  2>/dev/null | openssl x509 -noout -ext subjectAltName
+```
+
+If the SAN list already has `*.${TENANT}.connect.abluva.com`, go to §6.
+If OpenSSL reports hostname mismatch / name not listed, continue.
+
+### 5b) Reissue — merge existing SANs + this tenant
+
 ```bash
 cd /tmp
-TENANT_A=3407e407-792a-452d-8bb4-03c54ac34d52
-TENANT_B=5d5fcf62-9efa-48d1-9132-e3becf4436e5
 
 kubectl -n fabric-control get secret fabric-gateway-inbound-tls \
+  -o jsonpath='{.data.inbound-cert\.pem}' | base64 -d > inbound-old.crt
+kubectl -n fabric-control get secret fabric-gateway-inbound-tls \
   -o jsonpath='{.data.inbound-key\.pem}' | base64 -d > inbound.key
+
+# Existing DNS names from current cert, plus base names + this TENANT
+{
+  openssl x509 -in inbound-old.crt -noout -ext subjectAltName 2>/dev/null \
+    | tr ',' '\n' | sed -n 's/.*DNS:\([^ ]*\).*/\1/p'
+  echo "connect.abluva.com"
+  echo "*.connect.abluva.com"
+  echo "*.${TENANT}.connect.abluva.com"
+} | sed '/^$/d' | sort -u > /tmp/inbound-sans.txt
+
+SAN_EXT=$(awk '{printf "%sDNS:%s", (NR>1?",":""), $0}' /tmp/inbound-sans.txt)
+echo "SAN_EXT=$SAN_EXT"
+grep -F "*.${TENANT}.connect.abluva.com" /tmp/inbound-sans.txt
 
 openssl req -new -key inbound.key \
   -subj "/CN=*.connect.abluva.com" -out inbound.csr
 
 openssl x509 -req -in inbound.csr -signkey inbound.key -days 365 -out inbound.crt \
-  -extfile <(printf "subjectAltName=DNS:*.connect.abluva.com,DNS:*.${TENANT_A}.connect.abluva.com,DNS:*.${TENANT_B}.connect.abluva.com,DNS:connect.abluva.com")
+  -extfile <(printf "subjectAltName=%s" "$SAN_EXT")
 
 openssl x509 -in inbound.crt -noout -ext subjectAltName
-# must list: *.5d5fcf62-9efa-48d1-9132-e3becf4436e5.connect.abluva.com
+# must list: *.${TENANT}.connect.abluva.com (and prior inbound-OIDC tenants)
 
 kubectl -n fabric-control create secret generic fabric-gateway-inbound-tls \
   --from-file=inbound-cert.pem=inbound.crt \
@@ -331,14 +362,17 @@ kubectl -n fabric-control rollout restart deploy/fabric-gateway
 kubectl -n fabric-control rollout status deploy/fabric-gateway
 ```
 
-Verify live:
+### 5c) Verify live for this tenant
 
 ```bash
 echo | openssl s_client -connect fabric.abluva.com:8444 \
-  -servername "k3s-oidc.${TENANT_B}.connect.abluva.com" \
+  -servername "k3s-oidc.${TENANT}.connect.abluva.com" \
   2>/dev/null | openssl x509 -noout -ext subjectAltName
 ```
 
+Must list `*.${TENANT}.connect.abluva.com` with no hostname mismatch. Without
+this step, Gateway `jwks_fetch` fails with TLS / `UNAUTHORIZED` (cert valid for
+other tenants only).
 ---
 
 ## 6) Cloud Shell — register workload evidence
@@ -450,8 +484,14 @@ workload_evidence_attributed
 | `Client sent an HTTP request to an HTTPS server` | Registration pointed at apiserver `:443` | Use HTTP JWKS proxy `:8080` |
 | `reachable: false` / curl ClusterIP refused | NetPol blocks `10.43.0.0/16` except 443/6443 | Headless Service + pod-CIDR NetPol for 8080 |
 | `discovery_failed: fetch failed` on PUT | CP does not trust self-signed inbound cert | `probe_discovery:false` + set `oidc_jwks_uri` + `oidc_ca_bundle_pem` |
-| `UNAUTHORIZED` … cert valid for `*.3407e407…` not `k3s-oidc.5d5fcf62…` | Inbound cert missing `*.<TENANT>.connect.abluva.com` | Regenerate inbound cert (step 5) |
-| Discovery connection reset | Wrong Agent listen port or evidence deny | Check registration-ports; fix SAN / JWKS |
+| `UNAUTHORIZED` / TLS … cert valid for `*.<other-tenant>…` not `k3s-oidc.<TENANT>…` | Inbound cert missing this tenant’s SAN | Step 5 — add `*.<TENANT>.connect.abluva.com`, keep existing SANs, restart Gateway |
+| `jwks_fetch` TLS fail / connection errors after new tenant OIDC | Same — new tenant not on inbound cert | Step 5 for that tenant (required on every inbound-OIDC onboarding) |
+| Install / Agent fails: `TENANT_NAMESPACE` missing or wrong ns | Env not derived; UI ns is `tenantId-envId[:26]` | Set or derive `TENANT_NAMESPACE` from Connect tenant + environment IDs (same as UI); use `fabric-edge.env` / install env, not a placeholder name |
+| `tunnel_dial_failed: x509: certificate signed by unknown authority` | Agent TLS trust has agent CA, not Gateway CA | Put Gateway `ca.crt` / `gateway.crt` into Agent trust (`connect-agent-tls`); Fetch CA / CP bundle must return **Gateway** cert |
+| Fetch CA / `/v1/ca-bundle` returns agent signing cert | CP not mounting Gateway TLS for bundle issuance | Mount Gateway cert on control-plane; re-fetch CA into Agent secret |
+| Discovery hits wrong port (e.g. UI `9448` vs live `9446`) | Multiple Connect Agent / app installs; registration listen-port remap | Use `fabric.abluva.io/registration-ports` / CP registration `agent_listen_port` for the target app (e.g. control-server); redeploy agent mapping if needed |
+| CP `/v1/.../registrations` **500**; Gateway `authz_context_lookup_failed` status=500; discovery connection reset | Control-plane Postgres unreachable (`ETIMEDOUT` to DB) | Restore CP DB connectivity; confirm regs HTTP **200**, then retry discovery |
+| Discovery connection reset (OIDC already attributed) | Often DB/authz above, or wrong Agent listen port | Fix Postgres / authz; confirm listen port; then re-test |
 
 ---
 
@@ -462,3 +502,6 @@ workload_evidence_attributed
 - Customer cluster stays private; Platform fetches JWKS via existing inbound.
 - Inbound TLS SAN must include `*.<tenant_id>.connect.abluva.com` (one label
   under the tenant subdomain), not only `*.connect.abluva.com`.
+- **Per-tenant onboarding:** each new inbound-OIDC tenant needs that SAN added
+  to `fabric-gateway-inbound-tls` (merge with existing SANs, then restart
+  Gateway). Skip only if the live cert already lists the tenant.
