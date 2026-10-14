@@ -335,17 +335,38 @@ record — Agents and inbound dials are TCP mTLS to `:8443`/`:8444`, not HTTP.
 
 ### Step 0 — Platform Day 0 (one script)
 
-SaaS / platform ops: **`deploy/platform/day0.sh`**. One file: PEM generation,
-namespaces, Secrets, kustomize apply (`deploy/k8s`), Ambient.
+**Production (Fabric + abluva-infra-api):** both repos are siblings under one
+root. Place `day-0.sh` at that root and run:
+
+```text
+<ROOT>/
+├── day-0.sh
+├── Fabric/
+│   └── deploy/platform/day0.sh
+└── saas-control-plane/infra-discovery/abluva-infra-api/k8s/
+```
 
 ```bash
-cd deploy/platform
+cd <ROOT>
+./day-0.sh
+# [1/2] Fabric/deploy/platform/day0.sh  (PKI, Secrets, deploy/k8s, Ambient)
+# [2/2] kubectl apply of abluva-infra-api/k8s
+```
+
+**Fabric-only** (skip infra-api overlay):
+
+```bash
+cd Fabric/deploy/platform
 ./day0.sh
 ```
 
-Optional env: `ABLV_PLATFORM_TENANT_ID`, `ABLV_PLATFORM_ENVIRONMENT_ID`,
-`CERT_EXPIRY_WEBHOOK_URL`, `SKIP_AMBIENT=1`, `SKIP_DEPLOY=1`, `FORCE_PKI=1`.
+Optional env for Fabric step: `ABLV_PLATFORM_TENANT_ID`,
+`ABLV_PLATFORM_ENVIRONMENT_ID`, `CERT_EXPIRY_WEBHOOK_URL`, `SKIP_AMBIENT=1`,
+`SKIP_DEPLOY=1`, `FORCE_PKI=1`.
 `setup-day0.sh` is a thin wrapper (`SKIP_DEPLOY=1 SKIP_AMBIENT=1`).
+
+Tenant Connect Agent install is **not** Day 0 — see
+`deploy/secure-agent-net.README.md`.
 
 **Two namespaces are involved** (`FABRIC_CONTROL_NAMESPACE` default `fabric-control`;
 `SAAS_NAMESPACE` default in the script):

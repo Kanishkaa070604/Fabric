@@ -29,6 +29,7 @@ Secure Pack / `securepack-lease` is **not** in this tree (networking-focused upl
 ## Design rules
 
 - **Config-driven:** table names, prefixes, Access URL — no hard-coded prod secrets.
-- **Secrets:** Access API for DB/vault; Day-0 secrets via setup scripts.
+- **Secrets:** Access API for DB/vault; Platform Day 0 via root `./day-0.sh`
+  (Fabric + abluva-infra-api) or `deploy/platform/day0.sh` (Fabric-only).
 - **Gateway Ambient opt-out:** Ghostunnel hostPort; SaaS mesh uses PeerAuthentication PERMISSIVE.
 - **Logging:** structured JSON with `tenant_id`, `registration_id`, `agent_id`, `stream_id`.

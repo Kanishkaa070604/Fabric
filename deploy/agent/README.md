@@ -1,32 +1,31 @@
-# Customer-side launcher (`Deployment/agent`)
+# Launcher (Part B)
 
-Apply **after** the Connect Agent is installed and **Connected**. Pass four
-values from the Connect UI: tenant id, environment id, login email, listen port.
+**Full setup guide:** [README.md](../secure-agent-net.README.md) at the repo root.
+
+Use this folder **only after** Connect Agent status is **Connected** in the Abluva UI.  
+Part A installers (`tenant-start.sh` / `install.sh`) do **not** deploy these files.
 
 | Artifact | Role |
-|---|---|
-| [`agent-deployment.yaml`](./agent-deployment.yaml) | Launcher + `agent-svc:5004` |
-| [`deploy-agent.sh`](./deploy-agent.sh) | Writes env + `kubectl apply` |
-| [`deploy-agent.env.example`](./deploy-agent.env.example) | Optional env template |
+|----------|------|
+| [`deploy-agent.sh`](./deploy-agent.sh) | Writes env + applies the launcher |
+| [`agent-deployment.yaml`](./agent-deployment.yaml) | Launcher Deployment + `agent-svc:5004` |
+| [`deploy-agent.env.example`](./deploy-agent.env.example) | Optional template |
 
-Connect Agent installers **do not** deploy this launcher.
+---
 
-## Before you run
+## After Connected (UI Steps 1–4)
 
-1. Connect Agent shows **Connected**.
-2. Get **`CONTROL_SERVER_LISTEN_PORT`** — Install → **Refresh**, or:
+### 1. Refresh for the listen port
 
-```bash
-kubectl -n <tenant-ns> get svc connect-agent \
-  -o jsonpath='{.metadata.annotations.fabric\.abluva\.io/registration-ports}{"\n"}'
-```
+Connect Agent → **Install** → **Refresh** → copy **`CONTROL_SERVER_LISTEN_PORT`**.
 
-(Use the port for PLATFORM reg `display_name=control-server`.)
+### 2. Deploy
 
-## Deploy (Kubernetes)
+From this directory (`agent/`):
+
+**Kubernetes**
 
 ```bash
-cd deploy/agent
 chmod +x deploy-agent.sh
 ./deploy-agent.sh \
   -t <TENANT_ID> \
@@ -35,16 +34,10 @@ chmod +x deploy-agent.sh
   -p <CONTROL_SERVER_LISTEN_PORT>
 ```
 
-The script:
-
-1. Derives `TENANT_NAMESPACE` = `<tenantId>-<envId first 26 chars>` (same as UI)
-2. Writes `deploy-agent.env` (tenant, env, email, port)
-3. Applies YAML with `INFRA_BASE_URL` → `connect-agent:<port>` and `X_ABLV_PRINCIPAL=<email>`
-
-## Deploy (VM / k3s appliance)
+**VM**
 
 ```bash
-cd deploy/agent
+chmod +x deploy-agent.sh
 KUBECTL="k3s kubectl" ./deploy-agent.sh \
   -t <TENANT_ID> \
   -e <ENVIRONMENT_ID> \
@@ -53,13 +46,34 @@ KUBECTL="k3s kubectl" ./deploy-agent.sh \
   --vm
 ```
 
-`--vm` uses `k3s kubectl` and the **same** derived tenant namespace as Kubernetes
-(`<tenantId>-<envId first 26 chars>`).
+`-t` / `-e` are in your Install env. `-m` is your Abluva login email. `-p` is from Step 1.
 
-Full customer task text: [`docs/Customer-Connect-Install.md`](../../docs/Customer-Connect-Install.md).
+### 3. Customer registrations
 
-## Check
+UI → **Customer registrations** → host `agent-svc` port `5004`  
+(optional `data-privacy-svc:8080`).
+
+Copy the **platform dial** host (`…:8444`). Do not use `agent-svc` in platform resource URLs.
+
+### 4. Register launcher resource
+
+1. **Resources** → **Register Resource**.
+2. **Name** — choose a label for this tenant/environment (e.g. `launcher-<tenant-or-env>`).
+3. **Type** `agent#https` · **Auth** **Credentials**.
+4. On the **Connect Agent** tab, copy the **platform dial target** for `agent-launcher`, then:
+
+```json
+{
+  "base_url": "https://<paste-exact-host:port-from-Connect-Agent-tab>",
+  "endpoint": "api/v1/launcher/create"
+}
+```
+
+Do not use `agent-svc:5004` here.
+
+### Verify
 
 ```bash
-kubectl -n <tenant-ns> get pods,svc -l tier=agent
+kubectl -n <TENANT_NAMESPACE> get pods,svc -l tier=agent
+# VM: k3s kubectl -n <TENANT_NAMESPACE> get pods,svc -l tier=agent
 ```

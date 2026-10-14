@@ -1,14 +1,27 @@
 #!/usr/bin/env bash
 # ============================================================
-# Fabric platform Day 0 (certs, Secrets, Gateway / CP / dns-webhook, Ambient).
+# Fabric platform Day 0 — PKI, Secrets, deploy/k8s, Ambient
 #
-# Fabric platform Day 0 (certs, Secrets, Gateway / CP / dns-webhook, Ambient).
+# Production: from <ROOT> (siblings Fabric/ + saas-control-plane/):
+#   ./day-0.sh          ← preferred; runs this script then infra-api k8s
 #
-# Called from the workspace root by ./day-0.sh (see that script).
-# You can also run this file directly from anywhere; paths are relative
-# to this checkout, not to cwd.
+# Fabric-only (skips infra-api k8s apply):
+#   ./day0.sh           ← this file
 #
-# No SQL, no NLB, no Cloudflare, no infra-api YAML (that is ./day-0.sh).
+# Steps inside this script:
+#   [1/5] Certificates (Agent CA, Gateway TLS, inbound TLS) → $PKI_DIR
+#   [2/5] Namespaces + Secrets (tokens printed once — save them)
+#   [3/5] kubectl apply Fabric/deploy/k8s (Gateway, CP, dns-webhook, …)
+#   [4/5] Ambient (skip with SKIP_AMBIENT=1)
+#   [5/5] Done summary
+#
+# Paths are relative to this checkout, not cwd.
+# Out of scope: SQL, NLB, Cloudflare, infra-api YAML (root ./day-0.sh [2/2]),
+#               tenant Connect Agent (secure-agent-net README).
+#
+# Useful env: ABLV_PLATFORM_TENANT_ID, ABLV_PLATFORM_ENVIRONMENT_ID,
+#   SAAS_NAMESPACE, FABRIC_CONTROL_NAMESPACE, PKI_DIR, FORCE_PKI=1,
+#   SKIP_AMBIENT=1, SKIP_DEPLOY=1, KUBE_CONTEXT, CERT_EXPIRY_WEBHOOK_URL
 # ============================================================
 set -euo pipefail
 

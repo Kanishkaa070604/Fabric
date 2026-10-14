@@ -1,26 +1,20 @@
 #!/usr/bin/env bash
 # ============================================================
-# Abluva launcher (Deployment/agent + agent-svc) — after Agent Connected
+# Abluva launcher (Deployment/agent + agent-svc)
 #
-# Inputs (after Connect Agent is Connected and the listen port is known):
-#   --tenant-id / -t
-#   --environment-id / -e
-#   --email / -m         login email → X_ABLV_PRINCIPAL
-#   --port / -p          CONTROL_SERVER_LISTEN_PORT (control-server)
+# Tenant guide: repo root README (secure-agent-net.README.md / README.md).
+# Part B only — after Connect Agent UI shows Connected:
 #
-# The script derives TENANT_NAMESPACE (same as Connect UI Install),
-# writes deploy-agent.env, and applies agent-deployment.yaml.
+#   1. Install → Refresh → CONTROL_SERVER_LISTEN_PORT
+#   2. Run this script (below)  ← you are here
+#   3. Customer registrations (agent-svc:5004)
+#   4. Resources → name this tenant → agent#https → base_url from Connect-tab dial
 #
-# Usage:
-#   ./deploy-agent.sh -t <TENANT_ID> -e <ENVIRONMENT_ID> -m <EMAIL> -p <PORT>
+# Required: -t TENANT_ID  -e ENVIRONMENT_ID  -m EMAIL  -p PORT
+# Does: derive ns → write deploy-agent.env → apply agent-deployment.yaml
 #
-# VM / k3s appliance (same derived tenant namespace as K8s):
-#   KUBECTL="k3s kubectl" ./deploy-agent.sh -t ... -e ... -m ... -p ... --vm
-#
-# Optional:
-#   --namespace=<ns>     override derived ns
-#   --env-out=<path>     where to write env (default: ./deploy-agent.env)
-#   --env-file=<path>    use an existing env instead of flags
+#   ./deploy-agent.sh -t … -e … -m … -p …
+#   KUBECTL="k3s kubectl" ./deploy-agent.sh -t … -e … -m … -p … --vm
 # ============================================================
 set -euo pipefail
 
@@ -183,4 +177,17 @@ echo "[OK] agent-deployment.yaml applied (INFRA_BASE_URL → connect-agent:${CS_
 echo ""
 echo "  Check:"
 echo "    $KUBECTL -n ${TENANT_NAMESPACE} get pods,svc -l tier=agent"
+echo "    Expect: agent pod Running, Service agent-svc:5004"
+echo ""
+echo "  Next (Part B Steps 3–4) in the Abluva UI:"
+echo "    3. Customer registrations → host=agent-svc port=5004"
+echo "       Then copy the platform dial target shown for agent-launcher."
+echo "    4. Resources → Register Resource:"
+echo "         Name: choose a label for this tenant/env"
+echo "         Type: agent#https · Auth: Credentials"
+echo "         base_url: https:// + exact dial host:port from Connect Agent tab"
+echo "         endpoint: api/v1/launcher/create"
+echo "         (Do NOT use agent-svc in base_url.)"
+echo ""
+echo "  Guide: README.md at the repo root"
 echo "============================================================"

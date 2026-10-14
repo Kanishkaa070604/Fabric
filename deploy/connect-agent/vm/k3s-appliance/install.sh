@@ -1,52 +1,31 @@
 #!/usr/bin/env bash
 # ============================================================
-# Abluva Connect Agent — k3s Appliance Installer (VM / Bare Metal)
+# Abluva Connect Agent — VM / bare metal installer (k3s appliance)
 #
-# Single command that turns a bare Linux host into a Fabric-connected
-# appliance. Installs k3s (lightweight Kubernetes) and deploys the
-# Connect Agent as a DaemonSet inside it — giving the customer:
-#   - Liveness/readiness probes (automatic restart on hang)
-#   - Resource limits (no OOM killing the host)
-#   - Rolling zero-downtime updates (same as full K8s customers)
-#   - K8s-Secret-based identity store (same as full K8s path)
-#   - Same DaemonSet manifest as Kubernetes customers (one path)
+# Tenant guide: repo root README (secure-agent-net.README.md / README.md).
+# Part A = UI Steps 1–5 (this script is Step 5). Do NOT start Part B early.
 #
-# The customer never needs to know k3s is underneath. They see one
-# install command, one status command, and one uninstall command.
+#   1. Get the installer (clone → connect-agent/vm/k3s-appliance)
+#   2. CA → Download → ca.crt (Gateway CA, not Agent CA)
+#   3. Save fabric-edge.env HERE with ca.crt + daemonset.yaml + NetPol
+#   4. Ensure BOOTSTRAP_TOKEN is set
+#   5. Run:  sudo ./install.sh
+#            or: sudo ./install.sh ./fabric-edge.env
 #
-# Usage:
-#   curl -sSL https://install.fabric.abluva.io | sh -s -- \
-#     --token=<BOOTSTRAP_TOKEN> \
-#     --gateway=fabric.platform.example.com:8443 \
-#     --control-plane=https://cp.platform.example.com \
-#     --tenant-id=<TENANT_UUID> \
-#     --ca-url=https://cp.platform.example.com/v1/ca-bundle  (or --ca-file=/path/to/ca.crt)
+# This script:
+#   k3s (if needed) → CA → ns/secrets → DaemonSet → NetPol → wait ready
+# It does NOT deploy the launcher (that is ../../../agent/deploy-agent.sh).
 #
-#   # Same method as kubernetes/tenant-start.sh (sources fabric-edge.env):
-#   ./install.sh ./fabric-edge.env
-#   # or (default path next to this script):
-#   ./install.sh
+# After UI shows Connected (Part B):
+#   1. Install → Refresh → CONTROL_SERVER_LISTEN_PORT
+#   2. cd ../../../agent && KUBECTL="k3s kubectl" ./deploy-agent.sh … --vm
+#   3. Customer registrations (agent-svc:5004)
+#   4. Resources → name this tenant → agent#https → base_url from Connect-tab dial
 #
-# Prerequisites:
-#   - Linux host (amd64/arm64) — k3s installs a systemd unit; Agent still
-#     runs as a DaemonSet inside k3s (not the plain systemd/ Agent package)
-#   - curl or wget; root access; python3 (renders DaemonSet YAML)
-#   - ca.crt + fabric-edge.env in the SAME directory as this script
-#   - fabric-edge.env requires (same as tenant-start.sh):
-#       TENANT_ID FABRIC_GATEWAY_ADDRESS FABRIC_CONTROL_PLANE_URL
-#       CONNECT_AGENT_IMAGE CA_CERT_FILE BOOTSTRAP_TOKEN
-#       + TENANT_NAMESPACE or ENVIRONMENT_ID (to derive ns)
-#   - daemonset.yaml + networkpolicy-example.yaml next to this script
-#
-# What gets installed:
-#   - /usr/local/bin/k3s (single static binary, ~60MB)
-#   - systemd unit: k3s.service (managed by the k3s installer)
-#   - Namespace: TENANT_NAMESPACE or <tenantId>-<envId[:26]> (same as K8s)
-#   - DaemonSet/Service/RBAC: same daemonset.yaml as K8s customers
-#   - Secrets: connect-agent-tls (CA), fabric-edge-bootstrap (token)
-#
-# Uninstall:
-#   /usr/local/bin/k3s-uninstall.sh
+# Needs: root, curl, python3; egress to Gateway :8443 + control plane.
+# Optional CLI (after env, CLI wins): --token= --gateway= --image= --ca-url= …
+# Ports: :8443 tunnel · :8444 inbound · :9443+ listen (Refresh) · :5004 agent-svc
+# Uninstall: /usr/local/bin/k3s-uninstall.sh
 # ============================================================
 set -euo pipefail
 
@@ -54,13 +33,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Defaults ---
 K3S_VERSION="${K3S_VERSION:-}"  # empty = latest stable
-SAAS_NAMESPACE="${SAAS_NAMESPACE:-3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c}"
-FABRIC_IDENTITY_STORE="kubernetes"
 DAEMONSET_YAML="${DAEMONSET_YAML:-$SCRIPT_DIR/daemonset.yaml}"
 NP_YAML="${NP_YAML:-$SCRIPT_DIR/networkpolicy-example.yaml}"
-CA_URL=""
+SKIP_NETWORK_POLICY="${SKIP_NETWORK_POLICY:-0}"
+AGENT_TIMEOUT="${AGENT_TIMEOUT:-300s}"
 # Default: fabric-edge.env next to this script (not the .example template)
 ENV_FILE="${SCRIPT_DIR}/fabric-edge.env"
+
+# CLI overrides — collected first, applied after source so CLI wins over env.
+CLI_BOOTSTRAP_TOKEN=""
+CLI_FABRIC_GATEWAY_ADDRESS=""
+CLI_FABRIC_CONTROL_PLANE_URL=""
+CLI_TENANT_ID=""
+CLI_TENANT_NAMESPACE=""
+CLI_CA_CERT_FILE=""
+CLI_CA_URL=""
+CLI_CONNECT_AGENT_IMAGE=""
+CLI_FABRIC_TLS_SERVER_NAME=""
 
 usage() {
   echo "Usage (same method as kubernetes/tenant-start.sh):"
@@ -68,7 +57,8 @@ usage() {
   echo "  $0 --env-file=<path/to/fabric-edge.env>"
   echo "Default env file: ${SCRIPT_DIR}/fabric-edge.env"
   echo "       See fabric-edge.env.example for the template only."
-  echo "CLI (optional overrides): --token=... --gateway=... --control-plane=... --tenant-id=... --namespace=... --image=... --ca-file=..."
+  echo "CLI (optional, overrides env): --token=... --gateway=... --control-plane=..."
+  echo "  --tenant-id=... --namespace=... --image=... --ca-file=... --ca-url=..."
   exit 1
 }
 
@@ -80,16 +70,16 @@ fi
 
 for arg in "$@"; do
   case "$arg" in
-    --token=*)           BOOTSTRAP_TOKEN="${arg#*=}" ;;
-    --gateway=*)         FABRIC_GATEWAY_ADDRESS="${arg#*=}" ;;
-    --control-plane=*)   FABRIC_CONTROL_PLANE_URL="${arg#*=}" ;;
-    --tenant-id=*)       TENANT_ID="${arg#*=}" ;;
-    --namespace=*)       TENANT_NAMESPACE="${arg#*=}" ;;
-    --ca-file=*)         CA_CERT_FILE="${arg#*=}" ;;
-    --ca-url=*)          CA_URL="${arg#*=}" ;;
+    --token=*)           CLI_BOOTSTRAP_TOKEN="${arg#*=}" ;;
+    --gateway=*)         CLI_FABRIC_GATEWAY_ADDRESS="${arg#*=}" ;;
+    --control-plane=*)   CLI_FABRIC_CONTROL_PLANE_URL="${arg#*=}" ;;
+    --tenant-id=*)       CLI_TENANT_ID="${arg#*=}" ;;
+    --namespace=*)       CLI_TENANT_NAMESPACE="${arg#*=}" ;;
+    --ca-file=*)         CLI_CA_CERT_FILE="${arg#*=}" ;;
+    --ca-url=*)          CLI_CA_URL="${arg#*=}" ;;
     --env-file=*)        ENV_FILE="${arg#*=}" ;;
-    --image=*)           CONNECT_AGENT_IMAGE="${arg#*=}" ;;
-    --tls-server-name=*) FABRIC_TLS_SERVER_NAME="${arg#*=}" ;;
+    --image=*)           CLI_CONNECT_AGENT_IMAGE="${arg#*=}" ;;
+    --tls-server-name=*) CLI_FABRIC_TLS_SERVER_NAME="${arg#*=}" ;;
     --help|-h)           usage ;;
     *)                   echo "Unknown arg: $arg"; usage ;;
   esac
@@ -116,6 +106,18 @@ CONNECT_AGENT_IMAGE="${CONNECT_AGENT_IMAGE:-${AGENT_IMAGE:-}}"
 CA_CERT_FILE="${CA_CERT_FILE:-${CA_FILE:-}}"
 TENANT_NAMESPACE="${TENANT_NAMESPACE:-${NAMESPACE:-}}"
 ENVIRONMENT_ID="${ENVIRONMENT_ID:-}"
+SAAS_NAMESPACE="${SAAS_NAMESPACE:-}"
+
+# CLI overrides win over env file
+[[ -n "$CLI_BOOTSTRAP_TOKEN" ]] && BOOTSTRAP_TOKEN="$CLI_BOOTSTRAP_TOKEN"
+[[ -n "$CLI_FABRIC_GATEWAY_ADDRESS" ]] && FABRIC_GATEWAY_ADDRESS="$CLI_FABRIC_GATEWAY_ADDRESS"
+[[ -n "$CLI_FABRIC_CONTROL_PLANE_URL" ]] && FABRIC_CONTROL_PLANE_URL="$CLI_FABRIC_CONTROL_PLANE_URL"
+[[ -n "$CLI_TENANT_ID" ]] && TENANT_ID="$CLI_TENANT_ID"
+[[ -n "$CLI_TENANT_NAMESPACE" ]] && TENANT_NAMESPACE="$CLI_TENANT_NAMESPACE"
+[[ -n "$CLI_CA_CERT_FILE" ]] && CA_CERT_FILE="$CLI_CA_CERT_FILE"
+[[ -n "$CLI_CONNECT_AGENT_IMAGE" ]] && CONNECT_AGENT_IMAGE="$CLI_CONNECT_AGENT_IMAGE"
+[[ -n "$CLI_FABRIC_TLS_SERVER_NAME" ]] && FABRIC_TLS_SERVER_NAME="$CLI_FABRIC_TLS_SERVER_NAME"
+CA_URL="${CLI_CA_URL:-${CA_URL:-}}"
 
 # Same namespace convention as Connect UI / deploy-agent.sh / Kubernetes Install:
 #   <tenantId>-<environmentId without leading tmp-, first 26 chars>
@@ -141,9 +143,21 @@ if [[ -z "${TENANT_NAMESPACE:-}" ]]; then
   echo "[OK] Derived TENANT_NAMESPACE=$TENANT_NAMESPACE"
 fi
 
+# Resolve relative CA path against this script's directory (not caller's cwd).
+case "$CA_CERT_FILE" in
+  /*) ;;
+  *) CA_CERT_FILE="${SCRIPT_DIR}/${CA_CERT_FILE#./}" ;;
+esac
+
+# Optional fetch before existence check (CLI --ca-url or CA_URL in env).
+if [[ -n "${CA_URL:-}" && ! -s "$CA_CERT_FILE" ]]; then
+  echo "[OK] Fetching Gateway CA from $CA_URL → $CA_CERT_FILE"
+  curl -sSf "$CA_URL" >"$CA_CERT_FILE"
+fi
+
 if [[ ! -f "$CA_CERT_FILE" ]]; then
   echo "ERROR: CA_CERT_FILE not found: $CA_CERT_FILE"
-  echo "       Put ca.crt next to install.sh (same as tenant-start.sh)."
+  echo "       Put Gateway ca.crt next to install.sh, or pass --ca-url=…"
   exit 1
 fi
 if [[ ! -f "$DAEMONSET_YAML" ]]; then
@@ -152,6 +166,10 @@ if [[ ! -f "$DAEMONSET_YAML" ]]; then
 fi
 if ! command -v python3 >/dev/null 2>&1; then
   echo "ERROR: python3 is required to render daemonset.yaml (same as tenant-start.sh)"
+  exit 1
+fi
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "ERROR: run as root (sudo ./install.sh) — k3s install requires root"
   exit 1
 fi
 
@@ -197,11 +215,8 @@ k3s kubectl get nodes >/dev/null 2>&1 || { echo "ERROR: k3s API server not ready
 
 # --- Step 2: CA trust (same as tenant-start.sh — from CA_CERT_FILE) ---
 echo "[2/6] Setting up CA trust bundle..."
-if [[ -n "$CA_URL" && ! -s "$CA_CERT_FILE" ]]; then
-  curl -sSf "$CA_URL" >"$CA_CERT_FILE"
-  echo "  [OK] fetched CA to $CA_CERT_FILE"
-fi
-echo "  CA_CERT_FILE=$CA_CERT_FILE"
+echo "  CA_CERT_FILE=$CA_CERT_FILE  (must be Gateway cert from Fetch CA /ca-bundle)"
+
 
 # --- Step 3: Create tenant namespace + secrets (same shape as tenant-start.sh) ---
 echo "[3/6] Creating namespace and secrets..."
@@ -329,53 +344,56 @@ k3s kubectl apply -f "$WORKDIR/daemonset.yaml"
 echo "  [OK] DaemonSet/Service/RBAC applied from $DAEMONSET_YAML (FABRIC_SUBSTRATE=vm)."
 
 echo "[5/6] Applying NetworkPolicy..."
-if [[ -f "$NP_YAML" ]]; then
+if [[ "$SKIP_NETWORK_POLICY" == "1" ]]; then
+  echo "  [SKIP] SKIP_NETWORK_POLICY=1"
+elif [[ -f "$NP_YAML" ]]; then
+  if [[ -z "$SAAS_NAMESPACE" ]]; then
+    echo "  [WARN] SAAS_NAMESPACE unset — NetPol SaaS peer selector will be empty placeholder."
+  fi
   sed -e "s/TENANT_NAMESPACE/${TENANT_NAMESPACE}/g" \
-      -e "s/SAAS_NAMESPACE/${SAAS_NAMESPACE}/g" \
+      -e "s/SAAS_NAMESPACE/${SAAS_NAMESPACE:-SAAS_NAMESPACE}/g" \
     "$NP_YAML" | k3s kubectl apply -f -
+  k3s kubectl -n "$TENANT_NAMESPACE" delete netpol connect-agent-ingress --ignore-not-found >/dev/null 2>&1 || true
   echo "  [OK] NetworkPolicy applied from $NP_YAML."
 else
   echo "  [SKIP] NetworkPolicy YAML not found at $NP_YAML"
 fi
 
 # --- Step 6: Wait for Agent to be ready ---
-echo "[6/6] Waiting for Agent to start..."
-for i in $(seq 1 60); do
-  if k3s kubectl -n "$TENANT_NAMESPACE" get pods -l app=connect-agent --field-selector=status.phase=Running 2>/dev/null | grep -q Running; then
-    echo ""
-    echo "============================================================"
-    echo "  Abluva Connect Agent installed successfully!"
-    echo ""
-    echo "  Next:"
-    echo "    1. Check pods:"
-    echo "         k3s kubectl -n ${TENANT_NAMESPACE} get pods"
-    echo "       Expect Running 1/1: connect-agent"
-    echo ""
-    echo "    2. Abluva UI → Subscriptions → Connect Agent:"
-    echo "       - Wait until Connected (Approve if PendingApproval)."
-    echo "       - Install → Refresh for CONTROL_SERVER_LISTEN_PORT."
-    echo ""
-    echo "    3. Deploy the launcher (tenant + env + email + listen port):"
-    echo "         cd ../../../agent"
-    echo "         KUBECTL=\"k3s kubectl\" ./deploy-agent.sh -t ${TENANT_ID} -e ${ENVIRONMENT_ID:-<ENVIRONMENT_ID>} -m <LOGIN_EMAIL> -p <PORT> --vm"
-    echo "       See deploy/agent/README.md"
-    echo ""
-    echo "    4. UI → Add customer registrations:"
-    echo "           agent-launcher   host=agent-svc          port=5004"
-    echo "           data-privacy     host=data-privacy-svc   port=8080   (if privacy)"
-    echo ""
-    echo "  Errors or detailed steps:"
-    echo "    See deploy/secure-agent-net.README.md → Troubleshooting"
-    echo "============================================================"
-    exit 0
-  fi
-  printf "."
-  sleep 2
-done
+echo "[6/6] Waiting for Agent DaemonSet..."
+if k3s kubectl -n "$TENANT_NAMESPACE" rollout status "daemonset/connect-agent" --timeout="$AGENT_TIMEOUT"; then
+  echo ""
+  echo "============================================================"
+  echo "  PART A COMPLETE — Connect Agent installed (UI Step 5)"
+  echo "============================================================"
+  echo ""
+  echo "  Verify:"
+  echo "    k3s kubectl -n ${TENANT_NAMESPACE} get pods"
+  echo "    Expect: connect-agent  Running  1/1"
+  echo ""
+  echo "  STOP — wait until the Connect Agent UI shows Connected"
+  echo "  (Approve if PendingApproval). Then Part B:"
+  echo ""
+  echo "    1. Install → Refresh → copy CONTROL_SERVER_LISTEN_PORT"
+  echo "    2. Deploy launcher:"
+  echo "         cd ../../../agent   # or from repo root: cd agent"
+  echo "         KUBECTL=\"k3s kubectl\" ./deploy-agent.sh -t ${TENANT_ID} -e ${ENVIRONMENT_ID:-<ENVIRONMENT_ID>} -m <LOGIN_EMAIL> -p <CONTROL_SERVER_LISTEN_PORT> --vm"
+  echo "    3. Customer registrations: host=agent-svc port=5004"
+  echo "    4. Resources → Register Resource:"
+  echo "         Name: choose a label for this tenant/env"
+  echo "         Type: agent#https · Auth: Credentials"
+  echo "         base_url: https:// + exact dial host:port from Connect Agent tab"
+  echo "         endpoint: api/v1/launcher/create"
+  echo "         (copy dial from agent-launcher row — not agent-svc)"
+  echo ""
+  echo "  Guide: README.md at the repo root"
+  echo "============================================================"
+  exit 0
+fi
 
 echo ""
-echo "WARNING: Agent pod not Running after 120s. Check:"
+echo "WARNING: DaemonSet not ready within ${AGENT_TIMEOUT}. Check:"
 echo "  k3s kubectl -n $TENANT_NAMESPACE describe pods -l app=connect-agent"
 echo "  k3s kubectl -n $TENANT_NAMESPACE logs -l app=connect-agent"
-echo "  Full guide: deploy/secure-agent-net.README.md → Troubleshooting"
+echo "  Full guide: README.md at the repo root → Troubleshooting"
 exit 1

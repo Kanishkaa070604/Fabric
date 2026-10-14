@@ -1,8 +1,8 @@
 # Day 0 — `setup-day0.sh` requirements & generation guide (OCI)
 
-Companion to `deploy/platform/day0.sh` (one-shot) and `setup-day0.sh` (secrets only). See `docs/Operational-Runbook.md` Day 0 (A0–A7).
+Companion to root `./day-0.sh` (Fabric + abluva-infra-api), `deploy/platform/day0.sh` (Fabric-only), and `setup-day0.sh` (secrets only). See `docs/Operational-Runbook.md` Day 0 (A0–A7).
 
-**Fresh install:** run `deploy/platform/day0.sh` (generates PEMs, Secrets, Gateway / Fabric CP / dns-webhook, Ambient). **This session’s checkboxes:** **§6**.
+**Fresh install (production):** under `<ROOT>` with sibling `Fabric/` and `saas-control-plane/`, run `./day-0.sh` (Fabric Day 0, then abluva-infra-api k8s). Fabric-only: `Fabric/deploy/platform/day0.sh`. **This session’s checkboxes:** **§6**.
 
 **Tokens** (writer, dual-control, Gateway, revoke-push, DNS webhook) are generated automatically if you leave those env vars unset. NLB + public DNS stay outside the script (OCI / Cloudflare).
 

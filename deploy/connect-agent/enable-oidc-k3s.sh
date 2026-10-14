@@ -23,5 +23,8 @@ echo "      --clusterrole=system:service-account-issuer-discovery \\"
 echo "      --group=system:unauthenticated"
 echo
 echo "Note: VM install flavor still uses strategy kubernetes_oidc when Agent runs on k3s."
+echo "This script only prints k3s issuer args. For private clusters via Fabric"
+echo "inbound (JWKS proxy, per-tenant SAN, workload-evidence PUT), follow:"
+echo "  docs/k3s-OIDC-Inbound-Test-Guide.md"
 echo "Register: PUT /v1/tenants/:id/workload-evidence"
 echo "  {\"strategy\":\"kubernetes_oidc\",\"oidc_issuer_url\":\"${ISSUER}\"}"

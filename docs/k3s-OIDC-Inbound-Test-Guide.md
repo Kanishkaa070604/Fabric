@@ -2,36 +2,48 @@
 
 End-to-end guide to enable `kubernetes_oidc` on a **private k3s** customer
 cluster when Platform reaches JWKS only through Fabric inbound
-(`connect.abluva.com:8444`).
+(`<CONNECT_ZONE>:8444`).
 
 Follow the sections in order. Each command block is labeled **Cloud Shell**
 (Platform kubectl / CP API) or **Customer** (k3s node / customer kubectl).
 
-Replace placeholders if your IDs differ:
+Set these placeholders to your values before running commands:
 
-| Placeholder | Example used in this guide |
+| Placeholder | Meaning |
 |---|---|
-| `TENANT` | `5d5fcf62-9efa-48d1-9132-e3becf4436e5` |
-| `AGENT_NS` | `5d5fcf62-9efa-48d1-9132-e3becf4436e5-e477fc9f-b9cc-4c04-b9ad-29` |
-| `CP` | `http://fabric.abluva.com:8080` |
-| `ISSUER` | `https://k3s-oidc.<TENANT>.connect.abluva.com:8444` |
-| Product tenant / env (discovery headers) | `3407e407-…` / `5620f907-…` |
+| `<TENANT_ID>` | Connect / customer tenant UUID |
+| `<TENANT_NAMESPACE>` | Agent ns: `<TENANT_ID>-<ENVIRONMENT_ID first 26 chars>` |
+| `<ENVIRONMENT_ID>` | Customer environment UUID |
+| `<AUTH_NS>` | Platform ns where `fabric-control-plane-auth` lives |
+| `<PRODUCT_TENANT_ID>` | Product SaaS tenant id (discovery headers) |
+| `<PRODUCT_ENVIRONMENT_ID>` | Product SaaS environment id (discovery headers) |
+| `<LOGIN_EMAIL>` | Principal email for discovery |
+| `<AGENT_LISTEN_PORT>` | From UI Install → Refresh (`CONTROL_SERVER_LISTEN_PORT`) |
+| `<CONTROL_PLANE_HOST>` | Control plane host (CP URL `:8080`) |
+| `<GATEWAY_INBOUND_HOST>` | Inbound TLS host (e.g. gateway public name) |
+| `<CONNECT_ZONE>` | Inbound DNS zone (e.g. `connect.abluva.com`) |
+| `ISSUER` | `https://k3s-oidc.<TENANT_ID>.<CONNECT_ZONE>:8444` |
 
-**Prereqs:** Connect Agent is **Connected** for `TENANT`; Fabric inbound
+**Prereqs:** Connect Agent is **Connected** for `<TENANT_ID>`; Fabric inbound
 `:8444` works for other customer registrations; you have a CP writer token.
+
+**Ports:** `:8444` = Platform inbound (issuer / JWKS dial). Agent discovery
+listen ports are `:9443+` from UI Install → **Refresh** after Connected — not 8444.
+Connect install first: `deploy/secure-agent-net.README.md` (tenant Part A → Connected).
 
 ---
 
 ## 0) Cloud Shell — load token and env
 
 ```bash
-export TENANT="5d5fcf62-9efa-48d1-9132-e3becf4436e5"
-export AGENT_NS="5d5fcf62-9efa-48d1-9132-e3becf4436e5-e477fc9f-b9cc-4c04-b9ad-29"
-export ISSUER="https://k3s-oidc.${TENANT}.connect.abluva.com:8444"
-export CP="http://fabric.abluva.com:8080"
+export TENANT="<TENANT_ID>"
+export AGENT_NS="<TENANT_NAMESPACE>"
+export CONNECT_ZONE="<CONNECT_ZONE>"
+export ISSUER="https://k3s-oidc.${TENANT}.${CONNECT_ZONE}:8444"
+export CP="http://<CONTROL_PLANE_HOST>:8080"
 
-# SaaS / control-plane auth secret namespace (where fabric-control-plane-auth lives)
-export AUTH_NS="3407e407-792a-452d-8bb4-03c54ac34d52-5620f907-0281-497d-9098-8c"
+# Platform ns where fabric-control-plane-auth lives
+export AUTH_NS="<AUTH_NS>"
 
 export FABRIC_CONTROL_PLANE_TOKEN="$(
   kubectl -n "$AUTH_NS" get secret fabric-control-plane-auth \
@@ -96,8 +108,9 @@ curl -sS -X POST "$CP/v1/registrations/$REG_ID/update" \
 Issuer must be the **exact** inbound URL, including **`:8444`**.
 
 ```bash
-export TENANT="5d5fcf62-9efa-48d1-9132-e3becf4436e5"
-export ISSUER="https://k3s-oidc.${TENANT}.connect.abluva.com:8444"
+export TENANT="<TENANT_ID>"
+export CONNECT_ZONE="${CONNECT_ZONE:-<CONNECT_ZONE>}"
+export ISSUER="https://k3s-oidc.${TENANT}.${CONNECT_ZONE}:8444"
 
 sudo tee /etc/rancher/k3s/config.yaml >/dev/null <<EOF
 kube-apiserver-arg:
@@ -130,7 +143,7 @@ Also use a **headless** Service so DNS returns a pod IP (tenant NetPol often
 blocks ClusterIP `:8080` on `10.43.0.0/16`).
 
 ```bash
-export AGENT_NS="5d5fcf62-9efa-48d1-9132-e3becf4436e5-e477fc9f-b9cc-4c04-b9ad-29"
+export AGENT_NS="<TENANT_NAMESPACE>"
 
 kubectl -n "$AGENT_NS" apply -f - <<EOF
 apiVersion: v1
@@ -299,11 +312,11 @@ curl -sk --http1.1 "$ISSUER/openid/v1/jwks" | jq '.keys|length'
 ## 5) Cloud Shell — inbound TLS SAN for this tenant
 
 **Do this for every tenant that uses inbound OIDC.** Gateway fetches JWKS at
-`k3s-oidc.<TENANT>.connect.abluva.com:8444`. Wildcard `*.connect.abluva.com`
+`k3s-oidc.<TENANT_ID>.<CONNECT_ZONE>:8444`. Wildcard `*.<CONNECT_ZONE>`
 does **not** match that name (extra DNS label). The inbound cert must include:
 
 ```text
-*.<TENANT>.connect.abluva.com
+*.<TENANT_ID>.<CONNECT_ZONE>
 ```
 
 Skip reissue only if that SAN is already on the live cert. When adding a new
@@ -313,18 +326,20 @@ new name breaks JWKS for older tenants.
 ### 5a) Check whether this tenant is already covered
 
 ```bash
-echo | openssl s_client -connect fabric.abluva.com:8444 \
-  -servername "k3s-oidc.${TENANT}.connect.abluva.com" \
+: "${CONNECT_ZONE:?set CONNECT_ZONE}"
+echo | openssl s_client -connect <GATEWAY_INBOUND_HOST>:8444 \
+  -servername "k3s-oidc.${TENANT}.${CONNECT_ZONE}" \
   2>/dev/null | openssl x509 -noout -ext subjectAltName
 ```
 
-If the SAN list already has `*.${TENANT}.connect.abluva.com`, go to §6.
+If the SAN list already has `*.${TENANT}.${CONNECT_ZONE}`, go to §6.
 If OpenSSL reports hostname mismatch / name not listed, continue.
 
 ### 5b) Reissue — merge existing SANs + this tenant
 
 ```bash
 cd /tmp
+: "${CONNECT_ZONE:?set CONNECT_ZONE}"
 
 kubectl -n fabric-control get secret fabric-gateway-inbound-tls \
   -o jsonpath='{.data.inbound-cert\.pem}' | base64 -d > inbound-old.crt
@@ -335,23 +350,23 @@ kubectl -n fabric-control get secret fabric-gateway-inbound-tls \
 {
   openssl x509 -in inbound-old.crt -noout -ext subjectAltName 2>/dev/null \
     | tr ',' '\n' | sed -n 's/.*DNS:\([^ ]*\).*/\1/p'
-  echo "connect.abluva.com"
-  echo "*.connect.abluva.com"
-  echo "*.${TENANT}.connect.abluva.com"
+  echo "${CONNECT_ZONE}"
+  echo "*.${CONNECT_ZONE}"
+  echo "*.${TENANT}.${CONNECT_ZONE}"
 } | sed '/^$/d' | sort -u > /tmp/inbound-sans.txt
 
 SAN_EXT=$(awk '{printf "%sDNS:%s", (NR>1?",":""), $0}' /tmp/inbound-sans.txt)
 echo "SAN_EXT=$SAN_EXT"
-grep -F "*.${TENANT}.connect.abluva.com" /tmp/inbound-sans.txt
+grep -F "*.${TENANT}.${CONNECT_ZONE}" /tmp/inbound-sans.txt
 
 openssl req -new -key inbound.key \
-  -subj "/CN=*.connect.abluva.com" -out inbound.csr
+  -subj "/CN=*.${CONNECT_ZONE}" -out inbound.csr
 
 openssl x509 -req -in inbound.csr -signkey inbound.key -days 365 -out inbound.crt \
   -extfile <(printf "subjectAltName=%s" "$SAN_EXT")
 
 openssl x509 -in inbound.crt -noout -ext subjectAltName
-# must list: *.${TENANT}.connect.abluva.com (and prior inbound-OIDC tenants)
+# must list: *.${TENANT}.${CONNECT_ZONE} (and prior inbound-OIDC tenants)
 
 kubectl -n fabric-control create secret generic fabric-gateway-inbound-tls \
   --from-file=inbound-cert.pem=inbound.crt \
@@ -365,12 +380,12 @@ kubectl -n fabric-control rollout status deploy/fabric-gateway
 ### 5c) Verify live for this tenant
 
 ```bash
-echo | openssl s_client -connect fabric.abluva.com:8444 \
-  -servername "k3s-oidc.${TENANT}.connect.abluva.com" \
+echo | openssl s_client -connect <GATEWAY_INBOUND_HOST>:8444 \
+  -servername "k3s-oidc.${TENANT}.${CONNECT_ZONE}" \
   2>/dev/null | openssl x509 -noout -ext subjectAltName
 ```
 
-Must list `*.${TENANT}.connect.abluva.com` with no hostname mismatch. Without
+Must list `*.${TENANT}.${CONNECT_ZONE}` with no hostname mismatch. Without
 this step, Gateway `jwks_fetch` fails with TLS / `UNAUTHORIZED` (cert valid for
 other tenants only).
 ---
@@ -382,8 +397,8 @@ self-signed inbound cert (`discovery_failed: fetch failed`). For this path,
 set JWKS + CA explicitly and skip the probe:
 
 ```bash
-openssl s_client -showcerts -connect fabric.abluva.com:8444 \
-  -servername "k3s-oidc.${TENANT}.connect.abluva.com" \
+openssl s_client -showcerts -connect <GATEWAY_INBOUND_HOST>:8444 \
+  -servername "k3s-oidc.${TENANT}.${CONNECT_ZONE}" \
   </dev/null 2>/dev/null \
   | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' > /tmp/inbound.crt
 
@@ -413,7 +428,7 @@ Want `oidc_enabled: true` and CA present.
 So projected tokens pick up the new `iss`:
 
 ```bash
-export AGENT_NS="5d5fcf62-9efa-48d1-9132-e3becf4436e5-e477fc9f-b9cc-4c04-b9ad-29"
+export AGENT_NS="<TENANT_NAMESPACE>"
 kubectl -n "$AGENT_NS" rollout restart ds/connect-agent
 kubectl -n "$AGENT_NS" rollout status ds/connect-agent
 ```
@@ -429,28 +444,31 @@ kubectl -n fabric-control logs -l app=fabric-gateway --all-containers -f \
   | grep --line-buffered -E 'workload_evidence_|UNAUTHORIZED|stream_denied'
 ```
 
-### 8b) Customer — discovery through Agent (:9444)
+### 8b) Customer — discovery through Agent
 
-Prefer Agent **pod IP** (avoids ClusterIP NetPol issues):
+Prefer Agent **pod IP** (avoids ClusterIP NetPol issues). Use the listen port
+from UI Install → **Refresh** (`CONTROL_SERVER_LISTEN_PORT`):
 
 ```bash
-NS=5d5fcf62-9efa-48d1-9132-e3becf4436e5-e477fc9f-b9cc-4c04-b9ad-29
+export NS="<TENANT_NAMESPACE>"
+export AGENT_LISTEN_PORT="<AGENT_LISTEN_PORT>"
+export PRODUCT_TENANT_ID="<PRODUCT_TENANT_ID>"
+export PRODUCT_ENVIRONMENT_ID="<PRODUCT_ENVIRONMENT_ID>"
+export LOGIN_EMAIL="<LOGIN_EMAIL>"
+
 AGENT_IP=$(kubectl -n "$NS" get pod -l app=connect-agent -o jsonpath='{.items[0].status.podIP}')
-BASE=http://${AGENT_IP}:9444
+BASE=http://${AGENT_IP}:${AGENT_LISTEN_PORT}
 
 kubectl -n "$NS" delete pod disc-test --ignore-not-found --force --grace-period=0
 kubectl -n "$NS" run disc-test --rm -it --restart=Never --image=busybox:1.36 -- \
   wget -qO- -T 15 \
-  --header="X-ABLV-Tenant-ID: 3407e407-792a-452d-8bb4-03c54ac34d52" \
-  --header="X-ABLV-Environment-ID: 5620f907-0281-497d-9098-8cfed51f5be1" \
-  --header="X-ABLV-Principal: kanishkaa070604@gmail.com" \
+  --header="X-ABLV-Tenant-ID: ${PRODUCT_TENANT_ID}" \
+  --header="X-ABLV-Environment-ID: ${PRODUCT_ENVIRONMENT_ID}" \
+  --header="X-ABLV-Principal: ${LOGIN_EMAIL}" \
   --header="X-ABLV-ResourceType: catalogue#database" \
   --header="Accept: application/json" \
   "${BASE}/api/v1/control/discovery"
 ```
-
-Adjust `:9444` if `fabric.abluva.io/registration-ports` maps control-server
-elsewhere.
 
 ---
 
@@ -470,7 +488,7 @@ Example success log:
 ```text
 workload_evidence_attributed
   evidence_strategy=kubernetes_oidc
-  evidence_iss=https://k3s-oidc.<TENANT>.connect.abluva.com:8444
+  evidence_iss=https://k3s-oidc.<TENANT_ID>.<CONNECT_ZONE>:8444
   evidence_aud=abluva-connect
   evidence_sa=connect-agent
 ```
@@ -484,7 +502,7 @@ workload_evidence_attributed
 | `Client sent an HTTP request to an HTTPS server` | Registration pointed at apiserver `:443` | Use HTTP JWKS proxy `:8080` |
 | `reachable: false` / curl ClusterIP refused | NetPol blocks `10.43.0.0/16` except 443/6443 | Headless Service + pod-CIDR NetPol for 8080 |
 | `discovery_failed: fetch failed` on PUT | CP does not trust self-signed inbound cert | `probe_discovery:false` + set `oidc_jwks_uri` + `oidc_ca_bundle_pem` |
-| `UNAUTHORIZED` / TLS … cert valid for `*.<other-tenant>…` not `k3s-oidc.<TENANT>…` | Inbound cert missing this tenant’s SAN | Step 5 — add `*.<TENANT>.connect.abluva.com`, keep existing SANs, restart Gateway |
+| `UNAUTHORIZED` / TLS … cert valid for `*.<OTHER_TENANT_ID>…` not `k3s-oidc.<TENANT_ID>…` | Inbound cert missing this tenant’s SAN | Step 5 — add `*.<TENANT_ID>.<CONNECT_ZONE>`, keep existing SANs, restart Gateway |
 | `jwks_fetch` TLS fail / connection errors after new tenant OIDC | Same — new tenant not on inbound cert | Step 5 for that tenant (required on every inbound-OIDC onboarding) |
 | Install / Agent fails: `TENANT_NAMESPACE` missing or wrong ns | Env not derived; UI ns is `tenantId-envId[:26]` | Set or derive `TENANT_NAMESPACE` from Connect tenant + environment IDs (same as UI); use `fabric-edge.env` / install env, not a placeholder name |
 | `tunnel_dial_failed: x509: certificate signed by unknown authority` | Agent TLS trust has agent CA, not Gateway CA | Put Gateway `ca.crt` / `gateway.crt` into Agent trust (`connect-agent-tls`); Fetch CA / CP bundle must return **Gateway** cert |
@@ -498,10 +516,10 @@ workload_evidence_attributed
 ## Design notes (why this shape)
 
 - Issuer = Fabric inbound friendly URL + **`:8444`** (not bare `:443`).
-- Per-tenant hostname: `k3s-oidc.<tenant_id>.connect.abluva.com`.
+- Per-tenant hostname: `k3s-oidc.<TENANT_ID>.<CONNECT_ZONE>`.
 - Customer cluster stays private; Platform fetches JWKS via existing inbound.
-- Inbound TLS SAN must include `*.<tenant_id>.connect.abluva.com` (one label
-  under the tenant subdomain), not only `*.connect.abluva.com`.
+- Inbound TLS SAN must include `*.<TENANT_ID>.<CONNECT_ZONE>` (one label
+  under the tenant subdomain), not only `*.<CONNECT_ZONE>`.
 - **Per-tenant onboarding:** each new inbound-OIDC tenant needs that SAN added
   to `fabric-gateway-inbound-tls` (merge with existing SANs, then restart
   Gateway). Skip only if the live cert already lists the tenant.
