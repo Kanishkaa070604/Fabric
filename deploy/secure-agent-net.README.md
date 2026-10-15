@@ -36,7 +36,7 @@ The **Install** env you download from the UI has the **same Step numbers** as th
 1. Open **Subscriptions** → your environment → **Connect Agent**.
 2. Choose flavor: **Kubernetes** or **VM / bare metal**.
 3. Set **Node count** / **Host count** (≥ 1). Optional: **Max tunnels** → **Save**.
-4. Click **Generate token** and store it (shown once; valid ~7 days).
+4. Click **Generate token** (shown once; ~7 days). The Install env fills `BOOTSTRAP_TOKEN` automatically after this.
 
 ### On your side
 
@@ -66,17 +66,15 @@ cd secure-agent-net
 | Kubernetes | `connect-agent/kubernetes/` |
 | VM / bare metal | `connect-agent/vm/k3s-appliance/` |
 
-### Step 2 — Download the Gateway CA
+### Step 2 — Download the CA
 
 1. UI → **CA** → **Download** (or Fetch and copy).
 2. Save as **`ca.crt`**.
 
-Must be the **Gateway** certificate — not an Agent signing CA.  
-Wrong CA → `certificate signed by unknown authority` on the tunnel.
-
 ### Step 3 — Save the Install env next to the script
 
-1. UI → **Install** → **Download** (or Copy).
+1. Generate the token first (Before you start), then UI → **Install** → **Download** (or Copy).  
+   `BOOTSTRAP_TOKEN` is already filled in that file — you do not paste it by hand.
 2. Save with the correct name, **in the same folder** as the script:
 
 | Flavor | Env file | Same folder must contain |
@@ -86,9 +84,10 @@ Wrong CA → `certificate signed by unknown authority` on the tunnel.
 
 `CA_CERT_FILE=./ca.crt` is relative to **that** folder — not your Downloads folder.
 
-### Step 4 — Set `BOOTSTRAP_TOKEN`
+### Step 4 — Confirm `BOOTSTRAP_TOKEN` is set
 
-Open the env file. If it still says `<BOOTSTRAP_TOKEN>`, paste the token from **Generate token**.
+Open the env file and confirm `BOOTSTRAP_TOKEN` is a real value (not `<BOOTSTRAP_TOKEN>`).  
+If you downloaded Install **before** Generate token, generate the token and download Install again.
 
 ### Step 5 — Run the installer
 
@@ -124,10 +123,7 @@ k3s kubectl -n <TENANT_NAMESPACE> get pods
 
 Expect: `connect-agent` → **Running 1/1**.
 
-In the UI:
-
-1. If status is **PendingApproval** → click **Approve**.
-2. Wait until status is **Connected**.
+In the UI, wait until status is **Connected**.
 
 **Do not start Part B until the UI shows Connected.**
 
@@ -207,9 +203,8 @@ Expect a Running agent pod and Service **`agent-svc`** on port **5004**.
 | agent-launcher | `agent-svc` | `5004` |
 | data-privacy (optional) | `data-privacy-svc` | `8080` |
 
-3. Host process on a VM (not in-cluster): use `127.0.0.1` and the same ports.
-4. Click **Create** (only when Agent is Connected).
-5. Copy the **platform dial target** shown after create (host in your Connect zone, port **8444**).
+3. Click **Create** (only when Agent is Connected).
+4. Copy the **platform dial target** shown after create (host in your Connect zone, port **8444**).
 
 Platform uses that dial target.  
 **Do not** put `agent-svc:5004` into a platform resource URL.
@@ -282,7 +277,7 @@ kubectl -n <TENANT_NAMESPACE> get pods,svc -l tier=agent
 
 | Problem | What to do |
 |---------|------------|
-| Create registration greyed out | Wait for **Connected**; **Approve** if PendingApproval |
+| Create registration greyed out | Wait until UI status is **Connected** |
 | `connect-agent` not Running | New **CA** + new **token** → update env → re-run Part A Step 5. Check reachability to Gateway **:8443** and the control plane URL |
 | Launcher cannot reach control-server | Install → **Refresh** for a real port → re-run `deploy-agent.sh` with that `-p` |
 | Platform dial / resource hangs | Resource URL must be Connect-tab dial **`:8444`**, not `agent-svc:5004` |
