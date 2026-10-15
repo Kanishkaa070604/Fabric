@@ -1,6 +1,6 @@
 # Abluva Connect — Tenant Setup Guide
 
-Do the steps **in order**. Finish **Part A**, then confirm the Agent is ready (below) before **Part B**.
+Do the steps **in order**. Finish **Part A**, then confirm the Agent is ready before **Part B**.
 
 | Part | Folder | What you install | When |
 |------|--------|------------------|------|
@@ -70,14 +70,12 @@ cd secure-agent-net
 
 1. Generate the token first (Before you start), then UI → **Install** → **Download** (or Copy).  
    `BOOTSTRAP_TOKEN` is already filled in that file — you do not paste it by hand.
-2. Save with the correct name, **in the same folder** as the script:
+2. Save the file with this name in the **installer folder** (same place as the script and `ca.crt`):
 
-| Flavor | Env file | Same folder must contain |
-|--------|----------|---------------------------|
-| Kubernetes | `tenant-start.env` | `tenant-start.sh`, `daemonset.yaml`, NetworkPolicy, **`ca.crt`** |
-| VM | `fabric-edge.env` | `install.sh`, `daemonset.yaml`, NetworkPolicy, **`ca.crt`** |
-
-`CA_CERT_FILE=./ca.crt` is relative to **that** folder — not your Downloads folder.
+| Flavor | Env file name | Folder |
+|--------|---------------|--------|
+| Kubernetes | `tenant-start.env` | `connect-agent/kubernetes/` |
+| VM | `fabric-edge.env` | `connect-agent/vm/k3s-appliance/` |
 
 ### Step 4 — Run the installer
 
