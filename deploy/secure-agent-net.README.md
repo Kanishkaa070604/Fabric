@@ -70,12 +70,12 @@ cd secure-agent-net
 
 1. Generate the token first (Before you start), then UI → **Install** → **Download** (or Copy).  
    `BOOTSTRAP_TOKEN` is already filled in that file — you do not paste it by hand.
-2. Save the file with this name in the **installer folder** (same place as the script and `ca.crt`):
+2. Save with the correct **env file name**, in the **same folder** as the script (and `ca.crt`):
 
-| Flavor | Env file name | Folder |
-|--------|---------------|--------|
-| Kubernetes | `tenant-start.env` | `connect-agent/kubernetes/` |
-| VM | `fabric-edge.env` | `connect-agent/vm/k3s-appliance/` |
+| Flavor | Env file name | Same folder must contain |
+|--------|---------------|---------------------------|
+| Kubernetes | `tenant-start.env` | `tenant-start.sh`, `daemonset.yaml`, NetworkPolicy, `ca.crt` |
+| VM | `fabric-edge.env` | `install.sh`, `daemonset.yaml`, NetworkPolicy, `ca.crt` |
 
 ### Step 4 — Run the installer
 
