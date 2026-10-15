@@ -29,7 +29,7 @@ Set these placeholders to your values before running commands:
 
 **Ports:** `:8444` = Platform inbound (issuer / JWKS dial). Agent discovery
 listen ports are `:9443+` from UI Install → **Refresh** after Connected — not 8444.
-Connect install first: `deploy/secure-agent-net.README.md` (tenant Part A → Connected).
+Connect install first: `deploy/secure-agent-net.README.md` (tenant Part A → Agent ready → Part B).
 
 ---
 

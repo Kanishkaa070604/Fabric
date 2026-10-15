@@ -3,7 +3,7 @@
 # Abluva launcher (Deployment/agent + agent-svc)
 #
 # Tenant guide: repo root README (secure-agent-net.README.md / README.md).
-# Part B only — after Connect Agent UI shows Connected:
+# Part B only — after Agent is ready (Refresh shows listen port, or Create enabled):
 #
 #   1. Install → Refresh → CONTROL_SERVER_LISTEN_PORT
 #   2. Run this script (below)  ← you are here

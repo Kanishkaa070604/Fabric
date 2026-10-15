@@ -33,7 +33,11 @@ The **Install** env from the UI follows the same flow as this guide.
 1. Open **Subscriptions** → your environment → **Connect Agent**.
 2. Choose flavor: **Kubernetes** or **VM / bare metal**.
 3. Set **Node count** / **Host count** (≥ 1). Optional: **Max tunnels** → **Save**.
-4. Click **Generate token** (shown once; ~7 days). The Install env fills `BOOTSTRAP_TOKEN` automatically after this.
+4. Click **Generate token**.  
+   `BOOTSTRAP_TOKEN` is **auto-populated** in the Install env at that moment.  
+   If you close or leave this screen and come back, the Install env shows the  
+   placeholder `<BOOTSTRAP_TOKEN>` again — click **Generate token** once more  
+   and it will auto-populate. Then download the Install env (do not paste by hand).
 
 ### On your side
 
@@ -68,8 +72,8 @@ cd secure-agent-net
 
 ### Step 3 — Save the Install env next to the script
 
-1. Generate the token first (Before you start), then UI → **Install** → **Download** (or Copy).  
-   `BOOTSTRAP_TOKEN` is already filled in that file — you do not paste it by hand.
+1. After **Generate token** (so `BOOTSTRAP_TOKEN` is auto-filled), UI → **Install** → **Download** (or Copy).  
+   If the env still shows `<BOOTSTRAP_TOKEN>`, generate again on this page, then download.
 2. Save with the correct **env file name**, in the **same folder** as the script (and `ca.crt`):
 
 | Flavor | Env file name | Same folder must contain |

@@ -1,43 +1,40 @@
 # Connect Agent (Part A)
 
-**Full setup guide:** [README.md](../secure-agent-net.README.md) at the repo root  
+**Full setup guide:** [`../secure-agent-net.README.md`](../secure-agent-net.README.md)  
 (when published to [secure-agent-net](https://github.com/abluva/secure-agent-net), that file is `README.md`).
 
-This folder installs the **Connect Agent only**. The launcher is in [`../agent/`](../agent/) — use it only after the UI shows **Connected**.
+This folder is **Part A**. Continue in [`../agent/`](../agent/) only after the Agent is ready  
+(Install → **Refresh** shows `CONTROL_SERVER_LISTEN_PORT`, or Customer registrations → **Create** is enabled).
 
 | Part | Where | When |
 |------|-------|------|
-| **A** (you are here) | `kubernetes/` or `vm/k3s-appliance/` | First — UI Steps 1–5 |
-| **B** | [`../agent/`](../agent/) | After UI is **Connected** — Steps 1–4 |
+| **A** (you are here) | `kubernetes/` or `vm/k3s-appliance/` | First — Steps 1–4 |
+| **B** | [`../agent/`](../agent/) | After Agent is ready — Steps 1–4 |
 
 ---
 
 ## Choose your flavor
 
-| Flavor | Directory | Run |
-|--------|-----------|-----|
-| **Kubernetes** (existing cluster) | [`kubernetes/`](./kubernetes/) | `./tenant-start.sh ./tenant-start.env` |
-| **VM / bare metal** | [`vm/k3s-appliance/`](./vm/k3s-appliance/) | `sudo ./install.sh` |
-
-Same steps as the UI **Install** env download.
+| Flavor | Directory | Env file | Run |
+|--------|-----------|----------|-----|
+| **Kubernetes** | [`kubernetes/`](./kubernetes/) | `tenant-start.env` | `./tenant-start.sh ./tenant-start.env` |
+| **VM / bare metal** | [`vm/k3s-appliance/`](./vm/k3s-appliance/) | `fabric-edge.env` | `sudo ./install.sh` |
 
 ### Quick path (Kubernetes)
 
 1. Clone repo → `cd connect-agent/kubernetes`
 2. UI → **CA** → save `ca.crt` here  
-3. UI → **Install** → save as `tenant-start.env` here (with `daemonset.yaml`)  
-4. Set `BOOTSTRAP_TOKEN`  
-5. `./tenant-start.sh ./tenant-start.env`  
-6. Wait for UI **Connected** → continue in [`../agent/`](../agent/)
+3. **Generate token** (auto-fills Install env; if you left the page and see `<BOOTSTRAP_TOKEN>`, Generate again) → save as `tenant-start.env` here  
+4. `./tenant-start.sh ./tenant-start.env`  
+5. When ready → continue in [`../agent/`](../agent/)
 
 ### Quick path (VM)
 
 1. Clone repo → `cd connect-agent/vm/k3s-appliance`
 2. UI → **CA** → save `ca.crt` here  
-3. UI → **Install** → save as `fabric-edge.env` here  
-4. Set `BOOTSTRAP_TOKEN`  
-5. `sudo ./install.sh`  
-6. Wait for UI **Connected** → continue in [`../agent/`](../agent/)
+3. **Generate token** (same auto-fill rules) → save as `fabric-edge.env` here  
+4. `sudo ./install.sh`  
+5. When ready → continue in [`../agent/`](../agent/)
 
 More detail: [`vm/k3s-appliance/README.md`](./vm/k3s-appliance/README.md).
 
@@ -65,16 +62,14 @@ Architecture-Spec §14: customer-local hop ACL templates per substrate.
 
 ### Kubernetes identity & Service (detail)
 
-Agents dial **out** to the Platform Gateway (no inbound MetalLB / Skupper required).
+Agents dial **out** to the Platform Gateway.
 
-Default identity: `FABRIC_IDENTITY_STORE=kubernetes` — leaf + keys in a per-node Secret (`connect-agent-identity-<node>`). Survives pod deletes and DaemonSet rollouts. Legacy `file` + `hostPath` exists for older installs only.
+Default identity: `FABRIC_IDENTITY_STORE=kubernetes` — leaf + keys in a per-node Secret.  
+The DaemonSet ships a `Service` reconciled by the Agent so apps dial `connect-agent.<namespace>.svc:<port>`.  
+Ports start at `FABRIC_LISTEN_BASE_PORT` (default **9443**). After the Agent is ready, UI Install → **Refresh** exposes `CONTROL_SERVER_LISTEN_PORT` for `deploy-agent.sh -p`.
 
-The DaemonSet ships a `Service` reconciled by the Agent (`FABRIC_K8S_SERVICE_MANAGE_ENABLED=1`) so apps dial `connect-agent.<namespace>.svc:<port>`. Ports start at `FABRIC_LISTEN_BASE_PORT` (default **9443**). After Connected, UI Install → **Refresh** exposes `CONTROL_SERVER_LISTEN_PORT` for the launcher (`deploy-agent.sh -p`).
-
-Do **not** apply `networkpolicy-agent-ingress-optional.yaml` on k3s/kube-router by default — a second NetPol on `app=connect-agent` can REJECT `:9443+`.
-
-Skipping NetworkPolicy does not break the tunnel; it only weakens customer-side isolation. Skipping Service RBAC still allows the first registration via the shipped Service, but further ports may need manual wiring.
+Do **not** apply `networkpolicy-agent-ingress-optional.yaml` on k3s/kube-router by default.
 
 ### VM systemd fallback
 
-See [`vm/systemd/`](./vm/systemd/) — loopback listen + host-firewall examples. Prefer [`vm/k3s-appliance/`](./vm/k3s-appliance/) for production VMs.
+See [`vm/systemd/`](./vm/systemd/). Prefer [`vm/k3s-appliance/`](./vm/k3s-appliance/) for production VMs.

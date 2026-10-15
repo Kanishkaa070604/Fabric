@@ -3,22 +3,16 @@
 # Abluva Connect Agent — Kubernetes installer
 #
 # Tenant guide: repo root README (secure-agent-net.README.md / README.md).
-# Part A = UI Steps 1–5 (this script is Step 5). Do NOT start Part B early.
+# Part A Steps 1–4 (this script is Step 4). Part B only after Agent is ready.
 #
 #   1. Get the installer (clone → connect-agent/kubernetes)
-#   2. CA → Download → ca.crt (Gateway CA, not Agent CA)
-#   3. Save tenant-start.env HERE with ca.crt + daemonset.yaml + NetPol
-#   4. Ensure BOOTSTRAP_TOKEN is set
-#   5. Run:  ./tenant-start.sh ./tenant-start.env
+#   2. CA → Download → ca.crt
+#   3. Generate token (auto-fills BOOTSTRAP_TOKEN; leave page → placeholder →
+#      Generate again) → save tenant-start.env HERE with ca.crt + daemonset.yaml
+#   4. Run:  ./tenant-start.sh ./tenant-start.env
 #
-# This script: create ns → secrets → DaemonSet → NetPol → wait ready.
-# It does NOT deploy the launcher (that is ../agent/deploy-agent.sh).
-#
-# After UI shows Connected (Part B):
-#   1. Install → Refresh → CONTROL_SERVER_LISTEN_PORT
-#   2. cd ../../agent && ./deploy-agent.sh -t … -e … -m … -p <PORT>
-#   3. Customer registrations (agent-svc:5004)
-#   4. Resources → name this tenant → agent#https → base_url from Connect-tab dial
+# Ready for Part B when Install → Refresh shows CONTROL_SERVER_LISTEN_PORT,
+# or Customer registrations → Create is enabled.
 #
 # Needs: kubectl, python3; egress to Gateway :8443 + control plane.
 # Ports: :8443 tunnel · :8444 inbound · :9443+ listen (Refresh) · :5004 agent-svc
@@ -259,16 +253,18 @@ kubectl -n "$TENANT_NAMESPACE" rollout status "daemonset/connect-agent" --timeou
 
 echo ""
 echo "============================================================"
-echo "  PART A COMPLETE — Connect Agent installed (UI Step 5)"
+echo "  PART A COMPLETE — Connect Agent installed (Step 4)"
 echo "============================================================"
 echo ""
 echo "  Verify:"
 echo "    kubectl -n ${TENANT_NAMESPACE} get pods"
 echo "    Expect: connect-agent  Running  1/1"
 echo ""
-echo "  STOP — wait until the Connect Agent UI shows Connected"
-echo "  (Approve if PendingApproval). Then Part B:"
+echo "  Ready for Part B when either is true:"
+echo "    - Install → Refresh shows CONTROL_SERVER_LISTEN_PORT"
+echo "    - Customer registrations → Create is enabled"
 echo ""
+echo "  Then Part B:"
 echo "    1. Install → Refresh → copy CONTROL_SERVER_LISTEN_PORT"
 echo "    2. Deploy launcher:"
 echo "         cd ../../agent   # or from repo root: cd agent"
