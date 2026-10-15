@@ -1,14 +1,11 @@
 # Abluva Connect — Tenant Setup Guide
 
-This is the **README for [secure-agent-net](https://github.com/abluva/secure-agent-net)**.  
-It matches the numbered steps in the Abluva UI: **Subscriptions → environment → Connect Agent → Install**.
-
-Do the steps **in order**. Finish **Part A** and wait until the UI shows **Connected** before **Part B**.
+Do the steps **in order**. Finish **Part A**, then confirm the Agent is ready (below) before **Part B**.
 
 | Part | Folder | What you install | When |
 |------|--------|------------------|------|
-| **A** | [`connect-agent/`](./connect-agent/) | Connect Agent | Steps 1–5 |
-| **B** | [`agent/`](./agent/) | Launcher + UI registrations | Only after **Connected** |
+| **A** | [`connect-agent/`](./connect-agent/) | Connect Agent | Steps 1–4 |
+| **B** | [`agent/`](./agent/) | Launcher + UI registrations | After Agent is ready |
 
 Do **not** commit `ca.crt`, bootstrap tokens, or filled env files.
 
@@ -25,7 +22,7 @@ secure-agent-net/
 └── agent/                    ← Part B (launcher): deploy-agent.sh
 ```
 
-The **Install** env you download from the UI has the **same Step numbers** as this guide.
+The **Install** env from the UI follows the same flow as this guide.
 
 ---
 
@@ -50,9 +47,7 @@ Pick **one** flavor and use it for every step below.
 
 ---
 
-## Part A — Connect Agent (Steps 1–5)
-
-Installs the tunnel agent only. It does **not** deploy the launcher.
+## Part A — Connect Agent (Steps 1–4)
 
 ### Step 1 — Get the installer
 
@@ -84,12 +79,7 @@ cd secure-agent-net
 
 `CA_CERT_FILE=./ca.crt` is relative to **that** folder — not your Downloads folder.
 
-### Step 4 — Confirm `BOOTSTRAP_TOKEN` is set
-
-Open the env file and confirm `BOOTSTRAP_TOKEN` is a real value (not `<BOOTSTRAP_TOKEN>`).  
-If you downloaded Install **before** Generate token, generate the token and download Install again.
-
-### Step 5 — Run the installer
+### Step 4 — Run the installer
 
 **Kubernetes**
 
@@ -107,7 +97,7 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-### Verify Part A — then wait for Connected
+### Verify Part A
 
 Your namespace is `TENANT_NAMESPACE` in the env file, or:
 
@@ -123,20 +113,23 @@ k3s kubectl -n <TENANT_NAMESPACE> get pods
 
 Expect: `connect-agent` → **Running 1/1**.
 
-In the UI, wait until status is **Connected**.
+### Ready for Part B?
 
-**Do not start Part B until the UI shows Connected.**
+You may not see a clear “Connected” label. Treat the Agent as ready when **either** is true:
+
+1. **Install → Refresh** shows a real **`CONTROL_SERVER_LISTEN_PORT`** (not empty / not a placeholder), or  
+2. **Customer registrations → Add** — **Create** is enabled (not greyed out).
+
+Do **not** start Part B until one of those is true.
 
 ---
 
-## Part B — After Connected (Steps 1–4)
-
-Only when Connect Agent status is **Connected**.
+## Part B — After the Agent is ready (Steps 1–4)
 
 ### Step 1 — Get `CONTROL_SERVER_LISTEN_PORT`
 
 1. Connect Agent → **Install** → **Refresh**.
-2. Copy **`CONTROL_SERVER_LISTEN_PORT`**.
+2. Copy **`CONTROL_SERVER_LISTEN_PORT`** (this appearing means the Agent reported its listen port).
 3. Pass it as `-p` in the next step.
 
 ### Step 2 — Deploy the launcher
@@ -203,7 +196,7 @@ Expect a Running agent pod and Service **`agent-svc`** on port **5004**.
 | agent-launcher | `agent-svc` | `5004` |
 | data-privacy (optional) | `data-privacy-svc` | `8080` |
 
-3. Click **Create** (only when Agent is Connected).
+3. Click **Create** (enabled when the Agent is ready — see above).
 4. Copy the **platform dial target** shown after create (host in your Connect zone, port **8444**).
 
 Platform uses that dial target.  
@@ -247,7 +240,7 @@ Do this in the Abluva UI (**Resources**), using the dial target from the **Conne
 ## Done
 
 - [ ] `connect-agent` pod Running 1/1  
-- [ ] UI status **Connected**  
+- [ ] Ready signal: Refresh shows listen port **or** Create registration is enabled  
 - [ ] Launcher Running; `agent-svc:5004` exists  
 - [ ] Customer registration for `agent-svc` / `5004`  
 - [ ] Resource named for this tenant; `base_url` = Connect-tab dial **`:8444`**, not `agent-svc`
@@ -277,8 +270,8 @@ kubectl -n <TENANT_NAMESPACE> get pods,svc -l tier=agent
 
 | Problem | What to do |
 |---------|------------|
-| Create registration greyed out | Wait until UI status is **Connected** |
-| `connect-agent` not Running | New **CA** + new **token** → update env → re-run Part A Step 5. Check reachability to Gateway **:8443** and the control plane URL |
+| Create registration greyed out | Wait for the Agent to finish coming up; retry later. Also try Install → **Refresh** for `CONTROL_SERVER_LISTEN_PORT` |
+| `connect-agent` not Running | New **CA** + new **token** → re-download Install env → re-run Part A Step 4. Check reachability to Gateway **:8443** and the control plane URL |
 | Launcher cannot reach control-server | Install → **Refresh** for a real port → re-run `deploy-agent.sh` with that `-p` |
 | Platform dial / resource hangs | Resource URL must be Connect-tab dial **`:8444`**, not `agent-svc:5004` |
 
