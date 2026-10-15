@@ -58,10 +58,10 @@ If the env still shows `<BOOTSTRAP_TOKEN>`, Generate again, then download.
 
 ### Verify → ready for Part B?
 
-`connect-agent` Running 1/1. Then either:
+`connect-agent` Running 1/1. No manual Approve. Ready when either:
 
 1. **Install → Refresh** shows `CONTROL_SERVER_LISTEN_PORT`, or  
-2. **Customer registrations → Create** is enabled.
+2. Customer registrations — fill a row and **Create** is enabled.
 
 ---
 

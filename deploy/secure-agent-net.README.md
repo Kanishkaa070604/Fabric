@@ -117,10 +117,10 @@ Expect: `connect-agent` → **Running 1/1**.
 
 ### Ready for Part B?
 
-You may not see a clear “Connected” label. Treat the Agent as ready when **either** is true:
+There is no manual Approve step. The Agent is ready when **either** is true:
 
-1. **Install → Refresh** shows a real **`CONTROL_SERVER_LISTEN_PORT`** (not empty / not a placeholder), or  
-2. **Customer registrations → Add** — **Create** is enabled (not greyed out).
+1. **Install → Refresh** shows a real **`CONTROL_SERVER_LISTEN_PORT`**, or  
+2. You open **Customer registrations**, fill a row, and **Create** is enabled (not greyed out).
 
 Do **not** start Part B until one of those is true.
 
@@ -263,18 +263,19 @@ Do this in the Abluva UI (**Resources**), using the dial target from the **Conne
 ## Troubleshooting
 
 ```bash
+# Kubernetes
 kubectl -n <TENANT_NAMESPACE> get pods
 kubectl -n <TENANT_NAMESPACE> logs -l app=connect-agent --tail=80
 kubectl -n <TENANT_NAMESPACE> get pods,svc -l tier=agent
-```
 
-(VM: use `k3s kubectl` instead of `kubectl`.)
+# VM: use k3s kubectl instead of kubectl
+```
 
 | Problem | What to do |
 |---------|------------|
-| Create registration greyed out | Wait for the Agent to finish coming up; retry later. Also try Install → **Refresh** for `CONTROL_SERVER_LISTEN_PORT` |
-| `connect-agent` not Running | New **CA** + new **token** → re-download Install env → re-run Part A Step 4. Check reachability to Gateway **:8443** and the control plane URL |
+| Install env shows `<BOOTSTRAP_TOKEN>` | **Generate token** again on the Connect Agent page, then download Install |
+| Create registration greyed out | Wait for the Agent to come up; try Install → **Refresh** for `CONTROL_SERVER_LISTEN_PORT` |
+| No `CONTROL_SERVER_LISTEN_PORT` after Refresh | Confirm `connect-agent` is Running 1/1; wait a bit and Refresh again |
+| `connect-agent` not Running | Re-download **CA** + Generate token → download Install → re-run Part A Step 4. Check reachability to Gateway **:8443** and the control plane URL |
 | Launcher cannot reach control-server | Install → **Refresh** for a real port → re-run `deploy-agent.sh` with that `-p` |
-| Platform dial / resource hangs | Resource URL must be Connect-tab dial **`:8444`**, not `agent-svc:5004` |
-
-Support: send `kubectl -n <TENANT_NAMESPACE> get pods`, Connect Agent logs (redact secrets), and Install env **without** tokens.
+| Platform dial / resource hangs | Resource `base_url` must be Connect-tab dial **`:8444`**, not `agent-svc:5004` |
